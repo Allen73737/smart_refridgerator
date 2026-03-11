@@ -1,0 +1,52 @@
+name: smridge_frontend
+description: Smridge Futuristic Frontend
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.1.0
+  local_auth: ^2.1.8
+  image_picker: ^1.1.2
+  http: 1.2.2
+  firebase_core: ^4.5.0
+  firebase_messaging: ^16.1.2
+  shared_preferences: ^2.2.2
+  fl_chart: ^1.1.1
+  mobile_scanner: ^7.2.0
+  cached_network_image: ^3.4.1
+  audioplayers: ^6.6.0
+
+  flutter_local_notifications: ^17.1.2
+  provider: ^6.1.5+1
+  flutter_colorpicker: ^1.1.0
+  file_picker: ^10.3.10
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - shaders/glass_distortion.frag
+    - shaders/fridge_glass.frag
+    - assets/fonts/
+    - assets/images/smridge_logo.png
+    - assets/audio/
+
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron-Regular.ttf
+
+    
