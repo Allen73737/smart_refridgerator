@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 
 class FridgeCustomizationProvider extends ChangeNotifier {
   // Fridge Colors
@@ -13,12 +14,19 @@ class FridgeCustomizationProvider extends ChangeNotifier {
   int _expiryNotificationSoundIndex = 0;
   int _inventorySaveSoundIndex = 0;
 
-  // Custom sound file paths (from device storage)
+  // Custom sound file paths (from device storage - local cache)
   String? _customVibratingSoundPath;
   String? _customDoorSoundPath;
   String? _customNotificationSoundPath;
   String? _customExpiryNotificationSoundPath;
   String? _customInventorySaveSoundPath;
+
+  // Custom sound URLs (from cloud)
+  String? _cloudVibUrl;
+  String? _cloudDoorUrl;
+  String? _cloudNotifUrl;
+  String? _cloudExpiryUrl;
+  String? _cloudSaveUrl;
 
   // Default sound indices per category (which built-in sound is treated as "Default")
   int _defaultVibratingSound = 0;
@@ -48,9 +56,45 @@ class FridgeCustomizationProvider extends ChangeNotifier {
   int get defaultExpirySoundDefault => _defaultExpirySoundDefault;
   int get defaultInventorySaveSound => _defaultInventorySaveSound;
 
-  /// Load all saved settings from SharedPreferences
-  Future<void> loadFromPrefs() async {
+  /// Load all saved settings from SharedPreferences & Cloud fallback
+  Future<void> loadFromPrefs({String? token}) async {
     final prefs = await SharedPreferences.getInstance();
+
+    // 1. Try Loading from Cloud if token provided
+    if (token != null) {
+      final cloudData = await ApiService.getUserSettings(token);
+      if (cloudData != null && cloudData.isNotEmpty) {
+        // Only update if cloud values are present; otherwise fallback to local
+        if (cloudData['fridgeExteriorColor'] != null) {
+          _fridgeExteriorColor = Color(int.parse((cloudData['fridgeExteriorColor'] as String).replaceAll('#', '0xFF')));
+        }
+        if (cloudData['fridgeInteriorColor'] != null) {
+          _fridgeInteriorColor = Color(int.parse((cloudData['fridgeInteriorColor'] as String).replaceAll('#', '0xFF')));
+        }
+
+        _fridgeVibratingSoundIndex = cloudData['fridgeVibratingSoundIndex'] ?? _fridgeVibratingSoundIndex;
+        _fridgeDoorSoundIndex = cloudData['fridgeDoorSoundIndex'] ?? _fridgeDoorSoundIndex;
+        _notificationSoundIndex = cloudData['notificationSoundIndex'] ?? _notificationSoundIndex;
+        _expiryNotificationSoundIndex = cloudData['expiryNotificationSoundIndex'] ?? _expiryNotificationSoundIndex;
+        _inventorySaveSoundIndex = cloudData['inventorySaveSoundIndex'] ?? _inventorySaveSoundIndex;
+
+        _cloudVibUrl = cloudData['customVibratingSoundUrl'] ?? _cloudVibUrl;
+        _cloudDoorUrl = cloudData['customDoorSoundUrl'] ?? _cloudDoorUrl;
+        _cloudNotifUrl = cloudData['customNotificationSoundUrl'] ?? _cloudNotifUrl;
+        _cloudExpiryUrl = cloudData['customExpiryNotificationSoundUrl'] ?? _cloudExpiryUrl;
+        _cloudSaveUrl = cloudData['customInventorySaveSoundUrl'] ?? _cloudSaveUrl;
+
+        _defaultVibratingSound = cloudData['defaultVibSound'] ?? _defaultVibratingSound;
+        _defaultDoorSound = cloudData['defaultDoorSound'] ?? _defaultDoorSound;
+        _defaultNotificationSound = cloudData['defaultNotifSound'] ?? _defaultNotificationSound;
+        _defaultExpirySoundDefault = cloudData['defaultExpirySound'] ?? _defaultExpirySoundDefault;
+        _defaultInventorySaveSound = cloudData['defaultSaveSound'] ?? _defaultInventorySaveSound;
+
+        // Note: We don't return here; we proceed to load local paths that might not be in cloud yet
+      }
+    }
+
+    // 2. Fallback to Local Prefs
     _fridgeExteriorColor = Color(prefs.getInt('extColor') ?? 0xFF2B4162);
     _fridgeInteriorColor = Color(prefs.getInt('intColor') ?? 0xFFFFFFFF);
     _fridgeVibratingSoundIndex = (prefs.getInt('vibSound') ?? 0).clamp(-1, 99);
@@ -72,6 +116,32 @@ class FridgeCustomizationProvider extends ChangeNotifier {
     _defaultInventorySaveSound = prefs.getInt('defSaveSound') ?? 0;
 
     notifyListeners();
+  }
+
+  Future<void> saveToCloud(String token) async {
+    String colorToHex(Color c) => '#${c.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+
+    final settingsMap = {
+      'fridgeExteriorColor': colorToHex(_fridgeExteriorColor),
+      'fridgeInteriorColor': colorToHex(_fridgeInteriorColor),
+      'fridgeVibratingSoundIndex': _fridgeVibratingSoundIndex,
+      'fridgeDoorSoundIndex': _fridgeDoorSoundIndex,
+      'notificationSoundIndex': _notificationSoundIndex,
+      'expiryNotificationSoundIndex': _expiryNotificationSoundIndex,
+      'inventorySaveSoundIndex': _inventorySaveSoundIndex,
+      'customVibratingSoundUrl': _cloudVibUrl ?? "",
+      'customDoorSoundUrl': _cloudDoorUrl ?? "",
+      'customNotificationSoundUrl': _cloudNotifUrl ?? "",
+      'customExpiryNotificationSoundUrl': _cloudExpiryUrl ?? "",
+      'customInventorySaveSoundUrl': _cloudSaveUrl ?? "",
+      'defaultVibSound': _defaultVibratingSound,
+      'defaultDoorSound': _defaultDoorSound,
+      'defaultNotifSound': _defaultNotificationSound,
+      'defaultExpirySound': _defaultExpirySoundDefault,
+      'defaultSaveSound': _defaultInventorySaveSound,
+    };
+
+    await ApiService.saveUserSettings(token, settingsMap);
   }
 
   /// Save all current settings to SharedPreferences
@@ -170,14 +240,26 @@ class FridgeCustomizationProvider extends ChangeNotifier {
   }
 
   String? getCustomSoundPath(String category) {
+    // 🔹 Prefer cloud URL if available, fallback to local path
     switch (category) {
-      case 'fridge_hum': return _customVibratingSoundPath;
-      case 'door_open': return _customDoorSoundPath;
-      case 'notification': return _customNotificationSoundPath;
-      case 'expiry': return _customExpiryNotificationSoundPath;
-      case 'success': return _customInventorySaveSoundPath;
+      case 'fridge_hum': return _cloudVibUrl ?? _customVibratingSoundPath;
+      case 'door_open': return _cloudDoorUrl ?? _customDoorSoundPath;
+      case 'notification': return _cloudNotifUrl ?? _customNotificationSoundPath;
+      case 'expiry': return _cloudExpiryUrl ?? _customExpiryNotificationSoundPath;
+      case 'success': return _cloudSaveUrl ?? _customInventorySaveSoundPath;
       default: return null;
     }
+  }
+
+  void setCloudUrl(String category, String url) {
+    switch (category) {
+      case 'fridge_hum': _cloudVibUrl = url; break;
+      case 'door_open': _cloudDoorUrl = url; break;
+      case 'notification': _cloudNotifUrl = url; break;
+      case 'expiry': _cloudExpiryUrl = url; break;
+      case 'success': _cloudSaveUrl = url; break;
+    }
+    notifyListeners();
   }
 
   // Set current sound as the default for a category

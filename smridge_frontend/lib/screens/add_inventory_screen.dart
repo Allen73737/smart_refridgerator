@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:ui';
 import 'dart:async';
 import 'dart:math';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -12,9 +14,12 @@ import '../utils/category_helper.dart';
 import 'package:intl/intl.dart';
 import '../utils/snackbar_utils.dart';
 import '../utils/expiry_estimator.dart';
+import '../utils/expiry_estimator.dart';
 import '../services/audio_service.dart';
+import '../services/api_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/fridge_customization_provider.dart';
 
 class AddInventoryScreen extends StatefulWidget {
@@ -52,6 +57,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   String? barcode;
   String? expirySource;
   final ImagePicker picker = ImagePicker();
+  
+  bool _isFetchingAiImage = false;
+  String? _aiSuggestedImageUrl;
+  String? _originalLocalImagePath; // 🔹 Persistent storage for the local photo
 
   static const List<String> categoryOptions = [
     'Dairy', 'Fruits', 'Vegetables', 'Meat', 'Seafood', 'Beverages',
@@ -73,6 +82,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   double currentWeight = 0.0;
   Timer? _weightSimulationTimer;
   String _lastAutoCategory = "Others";
+  
+  Timer? _aiDebounceTimer;
+  bool _isAiDetecting = false;
 
   @override
   void initState() {
@@ -125,31 +137,52 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   }
 
   void _onNameChanged() {
-    final newAutoCat = CategoryHelper.autoCategorizeProduct(nameController.text);
-    
-    // Auto-update the category field only if the user hasn't typed a custom category.
-    // We assume they haven't if it's currently empty or strictly matches the last auto-prediction.
-    if (categoryController.text.isEmpty || categoryController.text == _lastAutoCategory) {
-      if (categoryController.text != newAutoCat) {
-        setState(() {
-          categoryController.text = newAutoCat;
-        });
-      }
-    }
-    _lastAutoCategory = newAutoCat;
-
-    // Check if item is liquid
+    // Basic local updates to preserve UX speed while typing
     _checkLiquid(nameController.text, categoryController.text);
+    
+    // Cancel previous timer
+    if (_aiDebounceTimer?.isActive ?? false) _aiDebounceTimer!.cancel();
 
-    // Auto-update expiry date if the user hasn't manually overridden it
-    if (expirySource != "manual") {
-      final estimatedExpiry = ExpiryEstimator.estimateExpiryDate(nameController.text);
-      if (selectedDate == null || selectedDate!.difference(estimatedExpiry).inDays.abs() > 0) {
-        setState(() {
-          selectedDate = estimatedExpiry;
-          expirySource = "estimated";
-        });
+    final text = nameController.text.trim();
+    if (text.isEmpty) return;
+
+    // Start new debounced timer
+    _aiDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
+      _fetchAiPredictions(text);
+    });
+  }
+
+  Future<void> _fetchAiPredictions(String name) async {
+    if (!mounted) return;
+    setState(() => _isAiDetecting = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token != null) {
+        final prediction = await ApiService.autoDetectItemDetails(name, token);
+        if (prediction != null && mounted) {
+          setState(() {
+            // Apply Category if user hasn't heavily modified it
+            final aiCategory = prediction['category'];
+            if (aiCategory != null && categoryOptions.contains(aiCategory)) {
+               categoryController.text = aiCategory;
+            }
+
+            // Apply Expiry if user hasn't manually set it
+            if (expirySource != "manual" && prediction['expiryDays'] != null) {
+               final int days = (prediction['expiryDays'] as num).toInt();
+               selectedDate = DateTime.now().add(Duration(days: days));
+               expirySource = "estimated";
+            }
+          });
+          _checkLiquid(nameController.text, categoryController.text);
+        }
       }
+    } catch (_) {
+      // Silently fail on AI errors to not interrupt UX
+    } finally {
+      if (mounted) setState(() => _isAiDetecting = false);
     }
   }
 
@@ -171,6 +204,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
   @override
   void dispose() {
+    _aiDebounceTimer?.cancel();
     _weightSimulationTimer?.cancel();
     nameController.removeListener(_onNameChanged);
     nameController.dispose();
@@ -198,7 +232,65 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   Future<void> pickImage(ImageSource source) async {
     final XFile? picked = await picker.pickImage(source: source);
     if (picked != null) {
-      setState(() => imagePath = picked.path);
+      setState(() {
+        imagePath = picked.path;
+        _originalLocalImagePath = picked.path; // 🔹 Store for safe switching
+        _isFetchingAiImage = true;
+        _aiSuggestedImageUrl = null;
+      });
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token');
+        if (token == null) {
+          setState(() => _isFetchingAiImage = false);
+          return;
+        }
+        
+        // 🔹 Pass the product name to get a high-quality suggestion from Unsplash
+        final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
+        
+        final request = http.MultipartRequest('POST', Uri.parse('${ApiService.baseDomain}/api/ai/suggest-image'));
+        request.headers['x-auth-token'] = token;
+        request.fields['name'] = name;
+        request.files.add(await http.MultipartFile.fromPath('image', picked.path));
+        
+        final streamedResponse = await request.send();
+        final response = await http.Response.fromStream(streamedResponse);
+        
+        if (response.statusCode == 200) {
+          final suggestedData = jsonDecode(response.body);
+          if (suggestedData != null && suggestedData['detected_info'] != null) {
+            final info = suggestedData['detected_info'];
+            setState(() {
+              // 🔹 AI AUTOFILL: Name, Category, and Expiry
+              if (nameController.text.isEmpty || nameController.text == "food") {
+                nameController.text = info['name'] ?? "";
+              }
+              
+              if (info['category'] != null && categoryOptions.contains(info['category'])) {
+                categoryController.text = info['category'];
+              }
+
+              if (info['expiryDays'] != null) {
+                final int days = (info['expiryDays'] as num).toInt();
+                selectedDate = DateTime.now().add(Duration(days: days));
+                expirySource = "estimated";
+              }
+
+              _aiSuggestedImageUrl = suggestedData['suggested_url'];
+              _isFetchingAiImage = false;
+            });
+            _checkLiquid(nameController.text, categoryController.text);
+          } else {
+             setState(() => _isFetchingAiImage = false);
+          }
+        } else {
+           setState(() => _isFetchingAiImage = false);
+        }
+      } catch (e) {
+          setState(() => _isFetchingAiImage = false);
+      }
     }
   }
 
@@ -210,6 +302,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     bool readOnly = false,
     Function(String)? onChanged,
     required bool isLight,
+    double hPadding = 12, // 🔹 Further reduced default from 20 to 12
   }) {
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color iconColor = isLight ? Colors.teal : Colors.tealAccent;
@@ -231,7 +324,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           labelStyle: TextStyle(color: isLight ? Colors.black54 : Colors.white54),
           prefixIcon: icon != null ? Icon(icon, color: iconColor) : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          contentPadding: EdgeInsets.symmetric(horizontal: hPadding, vertical: 16),
         ),
       ),
     );
@@ -309,6 +402,15 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           isLight: isLight,
                         ).animate().slideX(begin: -0.1).fade(),
 
+                        if (_isAiDetecting)
+                          Padding(
+                           padding: const EdgeInsets.only(top: 8.0, right: 10),
+                           child: Align(
+                             alignment: Alignment.centerRight,
+                             child: Text("✨ AI is analyzing item...", style: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent, fontSize: 12, fontStyle: FontStyle.italic)),
+                           ),
+                          ).animate().fadeIn(),
+
                         const SizedBox(height: 15),
 
                         Row(
@@ -319,9 +421,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 controller: brandController, 
                                 icon: Icons.branding_watermark,
                                 isLight: isLight,
+                                hPadding: 12, // 🔹 Pass reduced padding
                               ).animate().slideX(begin: -0.1).fade(delay: 50.ms),
                             ),
-                            const SizedBox(width: 15),
+                            const SizedBox(width: 6), // 🔹 Further reduced from 10 to 6
                             Expanded(
                               child: Container(
                                 decoration: BoxDecoration(
@@ -334,9 +437,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                   decoration: InputDecoration(
                                     labelText: "Category",
                                     labelStyle: TextStyle(color: isLight ? Colors.black54 : Colors.white54),
-                                    prefixIcon: Icon(Icons.category, color: isLight ? Colors.teal : Colors.tealAccent),
+                                    prefixIcon: Icon(Icons.category, color: isLight ? Colors.teal : Colors.tealAccent, size: 20), // 🔹 Smaller icon
                                     border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16), // 🔹 Reduced from 20 to 12
                                   ),
                                   dropdownColor: isLight ? Colors.white : const Color(0xFF1E2A33),
                                   style: TextStyle(color: textColor),
@@ -369,7 +472,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 isLight: isLight,
                               ).animate().slideX(begin: -0.1).fade(delay: 100.ms),
                             ),
-                            const SizedBox(width: 15),
+                            const SizedBox(width: 8), // 🔹 Reduced from 15 to 8
                             Expanded(
                               child: _buildGlassInput(
                                 label: "Weight (kg)", 
@@ -462,11 +565,95 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                         
                         const SizedBox(height: 25),
 
-                        // Image Picker Row
-                        Row(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
+                            if (_isFetchingAiImage)
+                              const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Center(
+                                  child: Column(
+                                    children: [
+                                      CircularProgressIndicator(color: Colors.tealAccent),
+                                      SizedBox(height: 10),
+                                      Text("AI is analyzing image...", style: TextStyle(color: Colors.white70)),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else if (_aiSuggestedImageUrl != null)
+                               Column(
+                                 children: [
+                                   Text("AI detected a generic product. Which image do you prefer?", 
+                                     style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 13)),
+                                   const SizedBox(height: 12),
+                                   Row(
+                                     children: [
+                                       Expanded(
+                                         child: GestureDetector(
+                                           onTap: () => setState(() {
+                                             imageUrl = null; 
+                                             // Restore local path if we had one
+                                             imagePath = _originalLocalImagePath; 
+                                           }),
+                                           child: Column(
+                                             children: [
+                                               ClipRRect(
+                                                 borderRadius: BorderRadius.circular(12),
+                                                 child: Container(
+                                                   height: 80,
+                                                   width: double.infinity,
+                                                   decoration: BoxDecoration(
+                                                     border: Border.all(color: imageUrl == null ? Colors.tealAccent : Colors.transparent, width: 2),
+                                                   ),
+                                                   child: imagePath != null ? Image.file(File(imagePath!), fit: BoxFit.cover) : const Icon(Icons.image),
+                                                 ),
+                                               ),
+                                               const SizedBox(height: 4),
+                                               Text("My Image", style: TextStyle(color: imageUrl == null ? Colors.tealAccent : textColor, fontSize: 10)),
+                                             ],
+                                           ),
+                                         ),
+                                       ),
+                                       const SizedBox(width: 12),
+                                       Expanded(
+                                         child: GestureDetector(
+                                           onTap: () => setState(() {
+                                             imageUrl = _aiSuggestedImageUrl;
+                                             imagePath = null; // 🔹 Clear local path so AI image is used
+                                           }),
+                                           child: Column(
+                                             children: [
+                                               ClipRRect(
+                                                 borderRadius: BorderRadius.circular(12),
+                                                 child: Container(
+                                                   height: 80,
+                                                   width: double.infinity,
+                                                   decoration: BoxDecoration(
+                                                     border: Border.all(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : Colors.transparent, width: 2),
+                                                   ),
+                                                   child: CachedNetworkImage(imageUrl: _aiSuggestedImageUrl!, fit: BoxFit.cover),
+                                                 ),
+                                               ),
+                                               const SizedBox(height: 4),
+                                               Text("AI Image", style: TextStyle(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : textColor, fontSize: 10)),
+                                             ],
+                                           ),
+                                         ),
+                                       ),
+                                     ],
+                                   ),
+                                   const SizedBox(height: 10),
+                                   Text("(Tap on image to select)", style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic)),
+                                 ],
+                               ).animate().fadeIn(),
+
+                            const SizedBox(height: 15),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1),
                                   foregroundColor: textColor,
@@ -491,6 +678,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 icon: const Icon(Icons.photo, size: 20),
                                 label: const Text("Gallery"),
                               ),
+                                ),
+                              ],
                             ),
                           ],
                         ).animate().fade(delay: 300.ms),
@@ -539,6 +728,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                               }
 
                               final item = InventoryItem(
+                                id: widget.existingItem?.id,
                                 name: nameController.text,
                                 brand: brandController.text.isNotEmpty ? brandController.text : null,
                                 category: categoryController.text.isNotEmpty ? categoryController.text : null,

@@ -33,6 +33,8 @@ class AddInventoryChoiceScreen extends StatelessWidget {
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
 
+    final border = Border.all(color: isLight ? Colors.transparent : color.withOpacity(0.3), width: 1.5);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -40,7 +42,7 @@ class AddInventoryChoiceScreen extends StatelessWidget {
         decoration: BoxDecoration(
           color: isLight ? Colors.white : color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: isLight ? Colors.transparent : color.withOpacity(0.3), width: 1.5),
+          border: border,
           boxShadow: [
             BoxShadow(
               color: isLight ? Colors.black.withOpacity(0.1) : color.withOpacity(0.2),

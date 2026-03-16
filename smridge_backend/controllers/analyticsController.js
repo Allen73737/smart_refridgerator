@@ -1,6 +1,6 @@
 const Item = require("../models/Item");
 const SensorData = require("../models/SensorData");
-const Notification = require("../models/Notification");
+const NotificationModel = require("../models/Notification");
 
 // 🟢 Get Temperature Trends
 exports.getTemperatureAnalytics = async (req, res) => {
@@ -40,7 +40,7 @@ exports.getSpoilageAnalytics = async (req, res) => {
         const userId = req.user.id;
 
         // Count spoilage and expiry notifications
-        const spoilageCount = await Notification.countDocuments({
+        const spoilageCount = await NotificationModel.countDocuments({
             userId,
             type: { $in: ['spoilage', 'expiry'] }
         });

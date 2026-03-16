@@ -15,7 +15,7 @@ class AppSettings {
   static Future<void> fetchAdminThresholds() async {
     try {
       final response = await http.get(
-        Uri.parse('http://localhost:5001/api/settings/admin-thresholds'),
+        Uri.parse('http://10.127.211.225:5001/api/settings/admin-thresholds'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {

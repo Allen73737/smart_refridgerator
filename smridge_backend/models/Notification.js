@@ -10,6 +10,7 @@ const notificationSchema = new mongoose.Schema({
   message: { type: String, required: true },
   type: { type: String, required: true }, // e.g., 'spoilage', 'temperature', 'door', 'expiry'
   isRead: { type: Boolean, default: false },
+  isArchived: { type: Boolean, default: false }, // 👈 Added for history support
   createdAt: { type: Date, default: Date.now }
 });
 

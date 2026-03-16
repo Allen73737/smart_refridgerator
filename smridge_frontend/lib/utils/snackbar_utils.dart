@@ -91,4 +91,14 @@ class SnackbarUtils {
       bgColor: const Color(0xFF3A2E1E),
     );
   }
+
+  static void showInfo(BuildContext context, String message) {
+    showCustomSnackbar(
+      context, 
+      message, 
+      icon: Icons.info_outline, 
+      iconColor: Colors.tealAccent,
+      bgColor: const Color(0xFF1E2A33),
+    );
+  }
 }

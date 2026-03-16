@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const auth = require('../middleware/authMiddleware');
+const uploadAudio = require('../middleware/audioUploadMiddleware');
+const { getUserSettings, updateUserSettings, uploadAudioFile } = require('../controllers/settingsController');
 
 // Reuse the same Threshold schema from smridge_web — both servers share the same MongoDB
 let Threshold;
@@ -40,5 +43,16 @@ router.get('/admin-thresholds', async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 });
+
+// --- USER SETTINGS (Customizations & Audio) ---
+
+// GET current user's persistent settings
+router.get('/user-settings', auth, getUserSettings);
+
+// UPDATE current user's persistent settings (colors, indices, URLs)
+router.post('/user-settings', auth, updateUserSettings);
+
+// UPLOAD custom audio to cloud
+router.post('/upload-audio', auth, uploadAudio ? uploadAudio.single('audio') : (req,res)=>res.status(500).json({message:"Audio middleware missing"}), uploadAudioFile);
 
 module.exports = router;

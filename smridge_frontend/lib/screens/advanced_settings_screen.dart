@@ -3,13 +3,64 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
 import '../services/audio_service.dart';
+import '../services/api_service.dart';
+import '../widgets/smart_loader.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
-class AdvancedSettingsScreen extends StatelessWidget {
+class AdvancedSettingsScreen extends StatefulWidget {
   const AdvancedSettingsScreen({super.key});
+
+  @override
+  State<AdvancedSettingsScreen> createState() => _AdvancedSettingsScreenState();
+}
+
+class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
+  bool _isSaving = false;
+
+  Future<void> _saveAllSettings() async {
+    setState(() => _isSaving = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final customizationProvider = Provider.of<FridgeCustomizationProvider>(context, listen: false);
+
+      // 1. Check if any custom audio needs uploading
+      final categories = ['fridge_hum', 'door_open', 'notification', 'expiry', 'success'];
+      for (var cat in categories) {
+        final localPath = customizationProvider.getCustomSoundPath(cat);
+        // If it's a local file path (doesn't start with http), upload it
+        if (localPath != null && !localPath.startsWith('http')) {
+          final cloudUrl = await ApiService.uploadAudio(localPath, token);
+          if (cloudUrl != null) {
+            customizationProvider.setCloudUrl(cat, cloudUrl);
+          }
+        }
+      }
+
+      // 2. Persist everything to cloud
+      await customizationProvider.saveToCloud(token);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Settings saved to cloud! 🚀"), backgroundColor: Colors.teal),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error saving: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,23 +180,52 @@ class AdvancedSettingsScreen extends StatelessWidget {
                   isLight: isLight,
                   soundCategory: "success",
                 ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.volume_off),
-                    label: const Text("Revert Audio to Default"),
-                    style: TextButton.styleFrom(
+                const SizedBox(height: 20),
+                
+                // --- STANDALONE AUDIO SAVE BUTTON ---
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
                       foregroundColor: isLight ? Colors.teal : Colors.tealAccent,
+                      side: BorderSide(color: isLight ? Colors.teal : Colors.tealAccent.withOpacity(0.5)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    onPressed: () {
-                      customizationProvider.resetAudioToDefault();
-                    },
+                    onPressed: _isSaving ? null : _saveAllSettings,
+                    icon: const Icon(Icons.save_outlined, size: 20),
+                    label: const Text("Save Audio Settings", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
+
+                const SizedBox(height: 40),
+                
+                // --- SAVE BUTTON ---
+                SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isLight ? Colors.teal : Colors.tealAccent.withOpacity(0.8),
+                      foregroundColor: isLight ? Colors.white : Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 8,
+                    ),
+                    onPressed: _isSaving ? null : _saveAllSettings,
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text("Save All Settings", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ).animate().scale(delay: 200.ms),
+                
+                const SizedBox(height: 30),
               ],
             ).animate().slideY(begin: 0.1).fadeIn(),
           ),
+          
+          if (_isSaving)
+            const Positioned.fill(
+              child: SmartLoader(message: "Syncing customizations..."),
+            ),
         ],
       ),
     );

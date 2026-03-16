@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
+import '../services/secure_storage_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -30,28 +31,32 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => isLoading = true);
     
-    final token = await ApiService.login(_emailController.text, _passwordController.text);
-    
-    if (!mounted) return;
-    setState(() => isLoading = false);
+    try {
+      final token = await ApiService.login(_emailController.text, _passwordController.text);
+      
+      if (!mounted) return;
+      setState(() => isLoading = false);
 
-    if (token != null) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('token', token);
+      if (token != null) {
+        await SecureStorageService.saveToken(token);
 
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 800),
-          pageBuilder: (_, __, ___) => const HomeScreen(),
-          transitionsBuilder: (_, animation, __, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-        ),
-      );
-    } else {
-      showMessage("Invalid Credentials");
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 800),
+            pageBuilder: (_, __, ___) => const HomeScreen(),
+            transitionsBuilder: (_, animation, __, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
+      
+      final errorMsg = e.toString().replaceAll("Exception: ", "");
+      showMessage(errorMsg);
     }
   }
 

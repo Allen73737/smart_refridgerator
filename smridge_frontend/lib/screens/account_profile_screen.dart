@@ -73,6 +73,7 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
         }
         if (!mounted) return;
         SnackbarUtils.showSuccess(context, 'Profile Updated Successfully!');
+        _loadProfile(); // Refresh to show new image URL
       } else {
         if (!mounted) return;
         SnackbarUtils.showError(context, 'Failed to update profile.');
@@ -104,6 +105,13 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
     final isLight = themeProvider.currentTheme == ThemeType.light;
     final isDark = themeProvider.currentTheme == ThemeType.dark;
     Color textColor = isLight ? Colors.black87 : Colors.white;
+
+    DecorationImage? profileDecoImage;
+    if (_selectedImage != null) {
+      profileDecoImage = DecorationImage(image: FileImage(_selectedImage!), fit: BoxFit.cover);
+    } else if (_profileImageUrl != null) {
+      profileDecoImage = DecorationImage(image: NetworkImage(_profileImageUrl!), fit: BoxFit.cover);
+    }
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -157,13 +165,9 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
                                 BoxShadow(color: Colors.tealAccent.withOpacity(0.2), blurRadius: 20, spreadRadius: 5)
                               ],
                               color: Colors.white.withOpacity(0.1),
-                              image: _selectedImage != null
-                                  ? DecorationImage(image: FileImage(_selectedImage!), fit: BoxFit.cover)
-                                  : _profileImageUrl != null
-                                      ? DecorationImage(image: NetworkImage(_profileImageUrl!), fit: BoxFit.cover)
-                                      : null,
+                              image: profileDecoImage,
                             ),
-                            child: _selectedImage == null && _profileImageUrl == null
+                            child: profileDecoImage == null
                                 ? Icon(Icons.person, size: 60, color: isLight ? Colors.black38 : Colors.white54)
                                 : null,
                           ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),

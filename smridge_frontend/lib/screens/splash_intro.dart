@@ -8,7 +8,7 @@ import '../core/page_transitions.dart';
 import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/secure_storage_service.dart';
 
 class SplashIntro extends StatefulWidget {
   const SplashIntro({Key? key}) : super(key: key);
@@ -67,15 +67,25 @@ class _SplashIntroState extends State<SplashIntro>
 
     await AudioService.stopLogoReveal();
 
-    final prefs = await SharedPreferences.getInstance();
-    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    final token = await SecureStorageService.getToken();
+    final isBiometricEnabled = await SecureStorageService.isBiometricEnabled();
 
-    if (isLoggedIn) {
-      Navigator.pushReplacement(
-        context,
-        FadeSlidePageRoute(page: const HomeScreen()),
-      );
+    if (token != null) {
+      if (isBiometricEnabled) {
+        // Go to login page to trigger biometrics
+        Navigator.pushReplacement(
+          context,
+          FadeSlidePageRoute(page: const LoginScreen()),
+        );
+      } else {
+        // Direct to home if logged in and biometrics not required
+        Navigator.pushReplacement(
+          context,
+          FadeSlidePageRoute(page: const HomeScreen()),
+        );
+      }
     } else {
+      // Not logged in, go to login page
       Navigator.pushReplacement(
         context,
         FadeSlidePageRoute(page: const LoginScreen()),

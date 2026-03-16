@@ -17,6 +17,7 @@ const itemSchema = new mongoose.Schema({
   notes: String,
   image: String, // 👈 image field
   freshnessScore: { type: Number, default: 100 },
+  notifiedIntervals: [String], // 👈 Track sent alerts (e.g. "48h", "expired")
   createdAt: {
     type: Date,
     default: Date.now

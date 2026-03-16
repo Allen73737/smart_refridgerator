@@ -94,6 +94,7 @@ class _AddItemScreenState
                   quantity: int.parse(
                       quantityController.text),
                   expiryDate: selectedDate!,
+                  dateAdded: DateTime.now(),
                 );
 
                 widget.onAdd(item);

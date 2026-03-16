@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: smridge-backend
+    runtime: docker
+    plan: free
+    envVars:
+      - key: PORT
+        value: 5001
+      - fromContext: MONGO_URI
+      - fromContext: JWT_SECRET
+      - fromContext: GROQ_API_KEY
+      - fromContext: UNSPLASH_ACCESS_KEY
+      - fromContext: CLOUDINARY_CLOUD_NAME
+      - fromContext: CLOUDINARY_API_KEY
+      - fromContext: CLOUDINARY_API_SECRET

@@ -50,4 +50,31 @@ class NotificationService {
       details,
     );
   }
+
+  Future<void> showCountdownNotification(String itemName, DateTime expiry) async {
+    final diff = expiry.difference(DateTime.now());
+    if (diff.isNegative) return;
+
+    final androidDetails = AndroidNotificationDetails(
+      'expiry_countdown_channel',
+      'Expiry Countdown',
+      importance: Importance.low,
+      priority: Priority.low,
+      ongoing: true,
+      showWhen: true,
+      usesChronometer: true,
+      when: expiry.millisecondsSinceEpoch,
+      chronometerCountDown: true,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+    
+    await _plugin.show(
+      999, // Static ID for countdown
+      "Expiry Countdown",
+      "'$itemName' will expire in some time",
+      details,
+    );
+  }
 }

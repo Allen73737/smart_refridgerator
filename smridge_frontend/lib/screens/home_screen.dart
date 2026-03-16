@@ -1,5 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/inventory_item.dart';
@@ -15,6 +18,7 @@ import 'login_screen.dart';
 import 'analytics_screen.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/secure_storage_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../widgets/wave_background.dart';
 import 'barcode_scanner_screen.dart';
@@ -26,6 +30,11 @@ import '../providers/fridge_customization_provider.dart';
 import 'help_support_screen.dart';
 import 'theme_settings_screen.dart';
 import '../utils/snackbar_utils.dart';
+import '../widgets/liquid_freshness_bar.dart'; // Added for completeness, though already used
+import '../widgets/system_monitoring_indicators.dart'; // New import
+import '../widgets/product_details_overlay.dart'; // New import
+import '../widgets/chat_assistant_overlay.dart'; // New import
+import '../services/socket_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,7 +48,7 @@ enum AddFlowState { choice, scanner, manual }
 class _HomeScreenState extends State<HomeScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final GlobalKey<State<Fridge3D>> _fridgeKey = GlobalKey<State<Fridge3D>>();
+  final GlobalKey<Fridge3DState> _fridgeKey = GlobalKey<Fridge3DState>();
   int selectedTab = 0;
   List<InventoryItem> inventory = [];
 
@@ -50,22 +59,113 @@ class _HomeScreenState extends State<HomeScreen> {
   AddFlowState _addFlowState = AddFlowState.choice;
   InventoryItem? _scannedItem;
   int? _editItemIndex;
+  int unreadNotifications = 0; // 👈 New state
 
   //////////////////////////////////////////////////////////////
   // 🔹 PROFILE DATA
   //////////////////////////////////////////////////////////////
 
+  int gasLevel = 15;
+  double fridgeTemp = 3.5;
+  String weatherTemp = "--";
+  String weatherIcon = "01d";
+  String timezone = "Loading...";
+  InventoryItem? _selectedItemForDetails;
+  bool _showChatbot = false; // Chatbot trigger
+
   String userName = "Loading...";
   String userEmail = "Loading...";
+  String? profileImageUrl;
   File? profileImage;
+
+  // 🔹 DRAGGABLE CHAT ICON STATE
+  Offset _chatIconPosition = const Offset(20, 140); // Default position (bottom-right area)
 
   final ImagePicker picker = ImagePicker();
 
   @override
   void initState() {
-    super.initState();
     _fetchProfile();
     _loadInventory();
+    _fetchNotificationsCount();
+    _initSocket();
+    _startSensorSync();
+  }
+
+  Timer? _sensorSyncTimer;
+  void _startSensorSync() {
+    _sensorSyncTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        final data = _fridgeKey.currentState?.simulator.getData();
+        if (data != null) {
+          ApiService.pushSensorData(data.temp, data.humidity, data.freshness);
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sensorSyncTimer?.cancel();
+    SocketService.off('inventory_update');
+    SocketService.off('sensor_data');
+    SocketService.off('notification_update');
+    super.dispose();
+  }
+
+  Future<void> _fetchNotificationsCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token != null) {
+      final notifs = await ApiService.getNotifications(token);
+      if (mounted) {
+        setState(() {
+          unreadNotifications = notifs.where((n) => n != null && n['isRead'] == false).length.toInt();
+        });
+      }
+    }
+  }
+
+  void _initSocket() {
+    SocketService.init();
+    
+    // Listen for inventory updates
+    SocketService.on('inventory_update', (data) {
+      print('📺 Socket Inventory Update Received: $data');
+      _loadInventory(); // Re-fetch inventory when any change occurs
+      
+      if (data['action'] == 'add') {
+        SnackbarUtils.showInfo(context, 'New item added to your fridge!');
+      } else if (data['action'] == 'delete') {
+        SnackbarUtils.showInfo(context, 'An item was removed from your fridge.');
+      }
+    });
+
+    // Listen for real-time sensor data
+    SocketService.on('sensor_data', (data) {
+      if (mounted) {
+        setState(() {
+          gasLevel = (data['gasLevel'] as num).toInt();
+          fridgeTemp = (data['temperature'] as num).toDouble();
+          // You can update more metrics here if needed
+        });
+      }
+    });
+
+    // 🔹 Listen for notification updates to sync badge count
+    SocketService.on('notification_update', (data) {
+      print('🔔 Notification Update Received: $data');
+      _fetchNotificationsCount();
+    });
+  }
+
+  void _addFood() {
+    setState(() {
+      _editItemIndex = null;
+      _scannedItem = null;
+      _addFlowState = AddFlowState.choice;
+      selectedTab = 3;
+    });
   }
 
   Future<void> _loadInventory() async {
@@ -91,6 +191,12 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           userName = profile['name'] ?? "Smridge User";
           userEmail = profile['email'] ?? "user@email.com";
+          final rawImg = profile['profileImage'];
+          if (rawImg != null && rawImg.isNotEmpty) {
+            profileImageUrl = rawImg.startsWith('http') ? rawImg : "${ApiService.baseDomain}/uploads/$rawImg";
+          } else {
+            profileImageUrl = null;
+          }
         });
       } else if (mounted) {
         setState(() {
@@ -114,6 +220,18 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         profileImage = File(pickedFile.path);
       });
+
+      // --- IMMEDIATE CLOUD SYNC ---
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token != null && token.isNotEmpty && token != 'mock-token') {
+        final success = await ApiService.uploadProfileImage(File(pickedFile.path), token);
+        if (success) {
+           _fetchProfile(); // Refresh to get the new URL
+        } else {
+           if (mounted) SnackbarUtils.showError(context, "Failed to sync profile photo to cloud/local storage.");
+        }
+      }
     }
   }
 
@@ -182,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ADD ITEM
   //////////////////////////////////////////////////////////////
 
-  void addInventoryItem(InventoryItem item) async {
+  Future<void> addInventoryItem(InventoryItem item) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token'); 
     
@@ -201,11 +319,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> updateInventoryItem(InventoryItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token'); 
+    
+    if (token == null || token.isEmpty || token == 'mock-token') {
+      if (mounted) {
+        SnackbarUtils.showWarning(context, "Warning: Not logged in. Update not synced.");
+      }
+      return;
+    }
+    
+    bool success = await ApiService.updateFood(item, token);
+    if (!success && mounted) {
+      SnackbarUtils.showError(context, "Warning: Failed to sync update to cloud.");
+    } else {
+       _loadInventory(); // Refresh to get updated data
+    }
+  }
+
   //////////////////////////////////////////////////////////////
   // DELETE ITEM
   //////////////////////////////////////////////////////////////
 
-  void deleteInventoryItem(int index) async {
+  Future<void> deleteInventoryItem(int index) async {
     final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
     AudioService.playSuccess(index: customizer.inventorySaveSoundIndex, customPath: customizer.customInventorySaveSoundPath);
     
@@ -267,13 +404,16 @@ class _HomeScreenState extends State<HomeScreen> {
           initialItem: _editItemIndex == null ? _scannedItem : null,
           onSave: (item) {
             if (_editItemIndex != null) {
-              setState(() {
-                inventory[_editItemIndex!] = item;
-              });
+              updateInventoryItem(item);
             } else {
               addInventoryItem(item);
             }
-            setState(() => selectedTab = 2);
+            setState(() {
+              _editItemIndex = null;
+              _scannedItem = null;
+              selectedTab = 2; // Return to inventory list
+            });
+            _loadInventory(); // Refresh list
           },
           onBack: () {
             if (_editItemIndex != null) {
@@ -286,12 +426,160 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildVerticalInventoryList() {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 0),
+      itemCount: inventory.length,
+      itemBuilder: (context, index) {
+        final item = inventory[index];
+        final daysLeft = item.expiryDate.difference(DateTime.now()).inDays;
+        
+        Color statusColor = Colors.greenAccent;
+        if (daysLeft < 0) statusColor = Colors.redAccent;
+        else if (daysLeft <= 2) statusColor = Colors.orangeAccent;
+
+        return GestureDetector(
+          onTap: () {
+            _triggerAnalysisSync(item);
+          },
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Item Image/Icon
+                  Stack(
+                    children: [
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.shade700,
+                          borderRadius: BorderRadius.circular(8),
+                          image: _buildItemImage(item),
+                        ),
+                        child: _hasNoImage(item)
+                            ? const Icon(Icons.fastfood, color: Colors.white70, size: 30)
+                            : null,
+                      ),
+                      if (item.expiryDate.isBefore(DateTime.now()))
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.8),
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: const Text(
+                              "EXPIRED",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                const SizedBox(width: 12),
+                // Item Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Quantity: ${item.quantity}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      LiquidFreshnessBar(
+                        value: daysLeft > 0 ? (daysLeft / 14.0).clamp(0.0, 1.0) : 0.0,
+                      ),
+                    ],
+                  ),
+                ),
+                // Action Buttons
+                Column(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit, color: Colors.blueAccent),
+                      onPressed: () => editInventoryItem(index, item),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.redAccent),
+                      onPressed: () => deleteInventoryItem(index),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  DecorationImage? _buildItemImage(InventoryItem item) {
+    if (item.imagePath != null && item.imagePath!.isNotEmpty) {
+      final file = File(item.imagePath!);
+      if (file.existsSync()) {
+        return DecorationImage(image: FileImage(file), fit: BoxFit.cover);
+      }
+    }
+    if (item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+      return DecorationImage(image: NetworkImage(item.imageUrl!), fit: BoxFit.cover);
+    }
+    return null;
+  }
+
+  bool _hasNoImage(InventoryItem item) {
+    bool localExists = false;
+    if (item.imagePath != null && item.imagePath!.isNotEmpty) {
+      localExists = File(item.imagePath!).existsSync();
+    }
+    return (item.imageUrl == null || item.imageUrl!.isEmpty) && !localExists;
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final themeType = themeProvider.currentTheme;
     final isLight = themeType == ThemeType.light;
     final isDark = themeType == ThemeType.dark;
+
+    ImageProvider? profileImageProvider;
+    if (profileImage != null) {
+      profileImageProvider = FileImage(profileImage!);
+    } else if (profileImageUrl != null && profileImageUrl!.isNotEmpty) {
+      profileImageProvider = NetworkImage(profileImageUrl!);
+    }
 
     return PopScope(
       canPop: selectedTab == 0,
@@ -373,8 +661,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.blueGrey,
-                        backgroundImage: profileImage != null ? FileImage(profileImage!) : null,
-                        child: profileImage == null ? const Icon(Icons.person, size: 50, color: Colors.white) : null,
+                        backgroundImage: profileImageProvider,
+                        child: profileImageProvider == null 
+                          ? const Icon(Icons.person, size: 50, color: Colors.white) 
+                          : null,
                       ),
                     ),
                     const SizedBox(height: 15),
@@ -405,6 +695,20 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: Icon(Icons.notifications, color: isLight ? Colors.teal : Colors.tealAccent),
                 title: Text("Notifications", style: TextStyle(color: isLight ? Colors.black87 : Colors.white, fontSize: 16)),
+                trailing: unreadNotifications > 0 ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)
+                    ],
+                  ),
+                  child: Text(
+                    unreadNotifications > 99 ? "99+" : unreadNotifications.toString(),
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ) : null,
                 onTap: () {
                   Navigator.pop(context); // Close drawer
                   setState(() => selectedTab = 4);
@@ -436,8 +740,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: Icon(Icons.logout, color: isLight ? Colors.red : Colors.redAccent),
                 title: Text("Logout", style: TextStyle(color: isLight ? Colors.red : Colors.redAccent, fontSize: 16)),
                 onTap: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.clear();
+                  await SecureStorageService.clearAll();
                   if (!context.mounted) return;
                   Navigator.pushAndRemoveUntil(context, FadeSlidePageRoute(page: const LoginScreen()), (route) => false);
                 },
@@ -447,6 +750,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+
+      // REMOVED: Replaced with draggable icon in body Stack
+      floatingActionButton: null,
 
       ////////////////////////////////////////////////////////////
       // BODY
@@ -498,6 +804,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                     onDelete: deleteInventoryItem,
                     onEdit: editInventoryItem,
+                    onItemTap: (item) {
+                      _triggerAnalysisSync(item);
+                    },
                   ),
                 ),
               ),
@@ -523,7 +832,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     AnalyticsScreen(onBack: () => setState(() => selectedTab = 1)),
 
                     // 7: PROFILE
-                    AccountProfileScreen(onBack: () => setState(() => selectedTab = 5)),
+                    AccountProfileScreen(onBack: () {
+                      _fetchProfile(); // Re-fetch to update side panel
+                      setState(() => selectedTab = 5);
+                    }),
                     
                     // 8: HELP & SUPPORT
                     HelpSupportScreen(onBack: () => setState(() => selectedTab = 5)),
@@ -560,11 +872,21 @@ class _HomeScreenState extends State<HomeScreen> {
             right: 20,
             child: AnimatedBottomDock(
               currentIndex: selectedTab,
+              notificationCount: unreadNotifications, 
               onTap: (index) async {
+                if (index == 3) {
+                  setState(() {
+                    _editItemIndex = null;
+                    _scannedItem = null;
+                    _addFlowState = AddFlowState.choice;
+                    selectedTab = 3;
+                  });
+                  return;
+                }
+
                 if (selectedTab == 2 && index == 2) {
-                  // If already on inventory tab and tapped again, auto-open door
-                  final state = _fridgeKey.currentState as dynamic;
-                  if (state != null && state.doorController != null) {
+                  final state = _fridgeKey.currentState;
+                  if (state != null) {
                     state.doorController.forward();
                   }
                 }
@@ -574,17 +896,233 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
               onDoubleTap: (index) {
-                if (index == 1) { // Status Tab
+                if (index == 1) { 
                   setState(() {
-                    selectedTab = 6; // Analytics Tab
+                    selectedTab = 6; 
                   });
                 }
               },
             ),
           ),
+
+          //////////////////////////////////////////////////////////
+          // PRODUCT DETAILS OVERLAY
+          //////////////////////////////////////////////////////////
+          if (_selectedItemForDetails != null)
+            Positioned.fill(
+              child: ProductDetailsOverlay(
+                item: _selectedItemForDetails!,
+                onClose: () => setState(() => _selectedItemForDetails = null),
+                onEdit: () {
+                  final idx = inventory.indexOf(_selectedItemForDetails!);
+                  setState(() => _selectedItemForDetails = null);
+                  if (idx != -1) editInventoryItem(idx, inventory[idx]);
+                },
+                onDelete: () {
+                  final idx = inventory.indexOf(_selectedItemForDetails!);
+                  setState(() => _selectedItemForDetails = null);
+                  if (idx != -1) deleteInventoryItem(idx);
+                },
+              ),
+            ),
+
+          //////////////////////////////////////////////////////////
+          // 🤖 MOVABLE AI CHAT ICON
+          //////////////////////////////////////////////////////////
+          Positioned(
+            right: _chatIconPosition.dx,
+            bottom: _chatIconPosition.dy,
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                setState(() {
+                  double nextX = _chatIconPosition.dx - details.delta.dx;
+                  double nextY = _chatIconPosition.dy - details.delta.dy;
+                  
+                  // Keep it on screen
+                  final size = MediaQuery.of(context).size;
+                  _chatIconPosition = Offset(
+                    nextX.clamp(0, size.width - 60),
+                    nextY.clamp(0, size.height - 100),
+                  );
+                });
+              },
+              child: FloatingActionButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.of(context).viewInsets.bottom,
+                      ),
+                      child: ChatAssistantOverlay(
+                        onClose: () => Navigator.pop(context),
+                        onActionTriggered: (action, value) {
+                          if (action == "ADD_ITEM" || action == "ADD_ITEM_AI") {
+                            if (value != null && value.startsWith("{")) {
+                              try {
+                                final details = jsonDecode(value);
+                                final newItem = InventoryItem(
+                                  name: details['name'] ?? "Unknown",
+                                  category: details['category'] ?? "Others",
+                                  quantity: (details['qty'] ?? 1).toInt(),
+                                  weight: 0.0,
+                                  expiryDate: DateTime.now().add(Duration(days: (details['expiryDays'] ?? 7).toInt())),
+                                  dateAdded: DateTime.now(),
+                                  imageUrl: details['imageUrl'],
+                                  expirySource: "AI",
+                                );
+                                addInventoryItem(newItem).then((_) {
+                                  _loadInventory();
+                                  _fetchNotificationsCount();
+                                });
+                                SnackbarUtils.showSuccess(context, "Added ${newItem.quantity} ${newItem.name} via AI.");
+                              } catch (e) {
+                                SnackbarUtils.showError(context, "AI Add failed: $e");
+                              }
+                            } else {
+                              _addFood(); // Fallback to manual
+                            }
+                          } else if (action == "EDIT_ITEM") {
+                            try {
+                              final details = jsonDecode(value ?? "{}");
+                              final itemName = details['name'] ?? value ?? "";
+                              final index = inventory.indexWhere((i) => i.name.toLowerCase() == itemName.toLowerCase());
+                              
+                              if (index != -1) {
+                                // 🔹 Direct Edit Check: If AI provides specific fields (qty, category), update directly
+                                if (details.containsKey('qty') || details.containsKey('category') || details.containsKey('expiryDays')) {
+                                  final oldItem = inventory[index];
+                                  final updatedItem = InventoryItem(
+                                    id: oldItem.id,
+                                    name: details['name'] ?? oldItem.name,
+                                    category: details['category'] ?? oldItem.category,
+                                    quantity: (details['qty'] ?? oldItem.quantity).toInt(),
+                                    weight: oldItem.weight,
+                                    expiryDate: details.containsKey('expiryDays') 
+                                      ? DateTime.now().add(Duration(days: (details['expiryDays'] as num).toInt()))
+                                      : oldItem.expiryDate,
+                                    dateAdded: oldItem.dateAdded,
+                                    imageUrl: oldItem.imageUrl,
+                                    imagePath: oldItem.imagePath,
+                                    expirySource: "AI_EDIT",
+                                  );
+                                  updateInventoryItem(updatedItem).then((_) => _loadInventory()); 
+                                  SnackbarUtils.showSuccess(context, "Updated '$itemName' via AI Assistant.");
+                                } else {
+                                  // Fallback: Open manual edit screen
+                                  editInventoryItem(index, inventory[index]);
+                                }
+                              } else {
+                                SnackbarUtils.showError(context, "Could not find '$itemName' in your fridge to edit.");
+                              }
+                            } catch (e) {
+                              // Fallback if not JSON
+                              final index = inventory.indexWhere((i) => i.name.toLowerCase() == (value ?? "").toLowerCase());
+                              if (index != -1) editInventoryItem(index, inventory[index]);
+                            }
+                          } else if (action == "DELETE_ITEM") {
+                            try {
+                              final details = jsonDecode(value ?? "{}");
+                              final itemName = details['name'] ?? value ?? "";
+                              final index = inventory.indexWhere((i) => i.name.toLowerCase() == itemName.toLowerCase());
+                              if (index != -1) {
+                                deleteInventoryItem(index);
+                                SnackbarUtils.showSuccess(context, "'$itemName' discarded via AI Assistant.");
+                                _loadInventory(); // Ensure real-time refresh
+                              } else {
+                                SnackbarUtils.showError(context, "Could not find '$itemName' in your fridge to discard.");
+                              }
+                            } catch (e) {
+                                // Fallback
+                                final index = inventory.indexWhere((i) => i.name.toLowerCase() == (value ?? "").toLowerCase());
+                                if (index != -1) deleteInventoryItem(index);
+                            }
+                          } else if (action == "OPEN_SCREEN") {
+                            String screen = "";
+                            try {
+                               final details = jsonDecode(value ?? "{}");
+                               screen = details['screen'] ?? value ?? "";
+                            } catch (e) {
+                               screen = value ?? "";
+                            }
+                            
+                            if (screen.isNotEmpty) {
+                               _loadInventory();
+                               _fetchNotificationsCount();
+                               if (screen == "Analytics") setState(() => selectedTab = 6);
+                               if (screen == "Settings") setState(() => selectedTab = 5);
+                               if (screen == "Inventory") setState(() => selectedTab = 2);
+                               if (screen == "Profile") setState(() => selectedTab = 7);
+                               if (screen == "Notifications") setState(() => selectedTab = 4);
+                               if (screen == "Recipes") setState(() => selectedTab = 3);
+                            }
+                          } else if (action == "CUSTOMIZE") {
+                            try {
+                              final details = jsonDecode(value ?? "{}");
+                              final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
+                              final type = details['type'];
+                              final val = details['value'];
+
+                              if (type == "exterior_color" && val != null) {
+                                final color = Color(int.parse(val.replaceAll('#', '0xFF')));
+                                customizer.setExteriorColor(color);
+                                SnackbarUtils.showSuccess(context, "Fridge exterior color updated.");
+                              } else if (type == "interior_color" && val != null) {
+                                final color = Color(int.parse(val.replaceAll('#', '0xFF')));
+                                customizer.setInteriorColor(color);
+                                SnackbarUtils.showSuccess(context, "Fridge interior color updated.");
+                              } else if (type == "reset") {
+                                customizer.resetToDefault();
+                                SnackbarUtils.showSuccess(context, "Fridge customization reset to defaults.");
+                              }
+                            } catch (e) {
+                              SnackbarUtils.showError(context, "Customization failed: $e");
+                            }
+                          } else if (action == "SET_SOUND") {
+                            try {
+                              final details = jsonDecode(value ?? "{}");
+                              final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
+                              final category = details['category'];
+                              final index = (details['index'] ?? 0).toInt();
+
+                              if (category == "fridge_hum") customizer.setVibratingSound(index);
+                              if (category == "door_open") customizer.setDoorSound(index);
+                              if (category == "notification") customizer.setNotificationSound(index);
+                              if (category == "expiry") customizer.setExpiryNotificationSound(index);
+                              if (category == "success") customizer.setInventorySaveSound(index);
+                              
+                              SnackbarUtils.showSuccess(context, "Sound settings updated for $category.");
+                            } catch (e) {
+                              SnackbarUtils.showError(context, "Sound update failed: $e");
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                  );
+                },
+                backgroundColor: Colors.tealAccent,
+                child: const Icon(Icons.smart_toy, color: Colors.black),
+              ),
+            ).animate().scale(delay: 500.ms).fadeIn(),
+          ),
         ],
       ),
-    ),
+      ),
     );
+  }
+  void _triggerAnalysisSync(InventoryItem item) async {
+    // 🔹 Instant sync for "Elite intelligence" before opening overlay
+    final data = _fridgeKey.currentState?.simulator.getData();
+    if (data != null) {
+       await ApiService.pushSensorData(data.temp, data.humidity, data.freshness);
+    }
+    if (mounted) {
+      setState(() {
+        _selectedItemForDetails = item;
+      });
+    }
   }
 }

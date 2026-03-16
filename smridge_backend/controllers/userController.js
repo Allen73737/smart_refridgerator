@@ -94,13 +94,24 @@ exports.saveFcmToken = async (req, res) => {
 // 🟢 Upload Profile Image
 exports.uploadProfileImage = async (req, res) => {
   try {
+    console.log("--- 👤 Profile Image Upload Request ---");
+    console.log("File Status:", req.file ? `Received: ${req.file.originalname}` : "❌ No file in request");
+    if (req.file) console.log("Target Cloudinary Path:", req.file.path);
+
     if (!req.file) {
       return res.status(400).json({ message: "No image provided" });
     }
 
+    let finalImageUrl = req.file.path;
+    if (req.file.isLocal) {
+      const host = req.get('host');
+      const protocol = req.protocol;
+      finalImageUrl = `${protocol}://${host}/${req.file.path}`;
+    }
+
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
-      { profileImage: req.file.filename },
+      { profileImage: finalImageUrl },
       { new: true }
     ).select("-password");
 

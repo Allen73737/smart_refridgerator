@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 class AnimatedBottomDock extends StatelessWidget {
   final int currentIndex;
+  final int notificationCount; // 👈 New property
   final Function(int) onTap;
   final Function(int)? onDoubleTap;
 
   const AnimatedBottomDock({
     super.key,
     required this.currentIndex,
+    this.notificationCount = 0, // 👈 Default to 0
     required this.onTap,
     this.onDoubleTap,
   });
@@ -67,10 +70,41 @@ class AnimatedBottomDock extends StatelessWidget {
                 child: AnimatedRotation(
                   turns: active ? 0.0 : -0.05,
                   duration: const Duration(milliseconds: 300),
-                  child: Icon(
-                    icons[index],
-                    color: active ? Colors.tealAccent : Colors.white54,
-                    shadows: active ? [const Shadow(color: Colors.white, blurRadius: 10)] : null,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        icons[index],
+                        color: active ? Colors.tealAccent : Colors.white54,
+                        shadows: active ? [const Shadow(color: Colors.white, blurRadius: 10)] : null,
+                      ),
+                      if (index == 4 && notificationCount > 0)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black, width: 1.5),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              (notificationCount ?? 0) > 99 ? "99+" : (notificationCount ?? 0).toString(),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ).animate().scale(duration: 300.ms, curve: Curves.bounceOut),
+                        ),
+                    ],
                   ),
                   ),
                 ),

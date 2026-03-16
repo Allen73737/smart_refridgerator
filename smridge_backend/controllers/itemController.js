@@ -1,17 +1,68 @@
 const Item = require("../models/Item");
-const Notification = require("../models/Notification");
+const NotificationModel = require("../models/Notification");
 const axios = require("axios");
+const { calculateFreshness } = require("../utils/freshnessUtils");
+const socketManager = require("../utils/socketManager");
 
 
 // 🟢 Add Item with Image
 exports.addItem = async (req, res) => {
   try {
-    console.log("Receiving AddFood Request:", req.body);
-    console.log("File:", req.file);
+    console.log("--- 📥 New AddFood Request Received ---");
+    console.log("Body Params:", JSON.stringify(req.body, null, 2));
+    console.log("Uploaded File Status:", req.file ? `File Received: ${req.file.originalname} (${req.file.mimetype})` : "❌ No File Received");
+    if (req.file) console.log("Cloudinary Path:", req.file.path);
 
     const { name, quantity, expiryDate, category, packaged, weight, barcode, brand, expirySource, notes, imageUrl } = req.body;
 
-    const item = await Item.create({
+    // --- EXPIRY DATE ESTIMATOR ---
+    let finalExpiryDate = expiryDate;
+    let finalExpirySource = expirySource || 'manual';
+
+    if (!finalExpiryDate && category) {
+      const shelfLifeDays = {
+        'milk': 5,
+        'bread': 5,
+        'eggs': 21,
+        'tomato': 7,
+        'chicken': 3,
+        'meat': 3,
+        'cheese': 14,
+        'sauce': 30,
+        'yogurt': 7
+      };
+
+      const catLower = category.toLowerCase();
+      let daysToAdd = 7; // default 1 week
+
+      for (const [key, days] of Object.entries(shelfLifeDays)) {
+        if (catLower.includes(key)) {
+          daysToAdd = days;
+          break;
+        }
+      }
+
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + daysToAdd);
+      finalExpiryDate = futureDate;
+      finalExpirySource = 'AI Predefined';
+    }
+
+    let finalImageUrl = imageUrl || '';
+    
+    // 🔹 Image Priority: If an imageUrl (like AI suggestion) is provided, use it. 
+    // Only use the uploaded file if no imageUrl is present.
+    if (req.file && (!finalImageUrl || finalImageUrl.length === 0)) {
+      if (req.file.isLocal) {
+        const host = req.get('host');
+        const protocol = req.protocol;
+        finalImageUrl = `${protocol}://${host}/${req.file.path}`;
+      } else {
+        finalImageUrl = req.file.path; // Cloudinary URL
+      }
+    }
+
+    const item = new Item({
       userId: req.user.id,
       name,
       category: category || "Others",
@@ -20,14 +71,22 @@ exports.addItem = async (req, res) => {
       weight: weight ? parseFloat(weight) : 0,
       barcode: barcode || null,
       brand: brand || null,
-      expiryDate,
-      expirySource: expirySource || 'manual',
+      expiryDate: finalExpiryDate,
+      expirySource: finalExpirySource,
       notes: notes || '',
-      image: req.file ? req.file.filename : (imageUrl || ''),
+      image: finalImageUrl, 
       freshnessScore: 100
     });
 
-    console.log("Item saved successfully:", item.name);
+    // 🔹 Calculate dynamic freshness before saving
+    item.freshnessScore = await calculateFreshness(item);
+    await item.save();
+
+    console.log("✅ Item saved successfully:", item.name, "| Freshness:", item.freshnessScore);
+    
+    // 🔹 Emit Socket Event
+    socketManager.emitEvent("inventory_update", { action: "add", item });
+
     res.status(201).json(item);
 
   } catch (error) {
@@ -41,54 +100,14 @@ exports.addItem = async (req, res) => {
 // 🟢 Get All Items + Expiry Detection
 exports.getItems = async (req, res) => {
   try {
-    const items = await Item.find({ userId: req.user.id });
+    let items = await Item.find({ userId: req.user.id });
 
     const today = new Date();
 
+    // 🔹 Freshness is updated here for real-time relevance in the UI
     for (let item of items) {
-      const diff =
-        (new Date(item.expiryDate) - today) /
-        (1000 * 60 * 60 * 24);
-
-      // If expiring within 2 days
-      if (diff <= 2 && diff >= 0) {
-        const message = `${item.name} is about to expire!`;
-
-        const exists = await Notification.findOne({
-          userId: req.user.id,
-          title: "Expiry Warning",
-          message
-        });
-
-        if (!exists) {
-          await Notification.create({
-            userId: req.user.id,
-            title: "Expiry Warning",
-            message,
-            type: "expiry"
-          });
-        }
-      }
-
-      // If already expired
-      if (diff < 0) {
-        const message = `${item.name} has expired!`;
-
-        const exists = await Notification.findOne({
-          userId: req.user.id,
-          title: "Item Expired",
-          message
-        });
-
-        if (!exists) {
-          await Notification.create({
-            userId: req.user.id,
-            title: "Item Expired",
-            message,
-            type: "expiry"
-          });
-        }
-      }
+      item.freshnessScore = await calculateFreshness(item);
+      await item.save(); 
     }
 
     res.json(items);
@@ -103,11 +122,37 @@ exports.getItems = async (req, res) => {
 // 🟢 Update Item
 exports.updateItem = async (req, res) => {
   try {
+    console.log("--- 🔄 Update Request Received ---");
+    console.log("Updating Item ID:", req.params.id);
+    console.log("Update Data:", JSON.stringify(req.body, null, 2));
+
+    const updateData = { ...req.body };
+    
+    if (req.file && (!updateData.image || updateData.image === '')) {
+      console.log("New Photo Received for Update:", req.file.path);
+      if (req.file.isLocal) {
+        const host = req.get('host');
+        const protocol = req.protocol;
+        updateData.image = `${protocol}://${host}/${req.file.path}`;
+      } else {
+        updateData.image = req.file.path;
+      }
+    }
+
     const updatedItem = await Item.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true }
     );
+
+    if (updatedItem) {
+      updatedItem.freshnessScore = await calculateFreshness(updatedItem);
+      await updatedItem.save();
+      console.log("✅ Item updated successfully:", updatedItem.name);
+
+      // 🔹 Emit Socket Event
+      socketManager.emitEvent("inventory_update", { action: "update", item: updatedItem });
+    }
 
     res.json(updatedItem);
 
@@ -122,6 +167,9 @@ exports.updateItem = async (req, res) => {
 exports.deleteItem = async (req, res) => {
   try {
     await Item.findByIdAndDelete(req.params.id);
+
+    // 🔹 Emit Socket Event
+    socketManager.emitEvent("inventory_update", { action: "delete", id: req.params.id });
 
     res.json({ message: "Item deleted successfully" });
 

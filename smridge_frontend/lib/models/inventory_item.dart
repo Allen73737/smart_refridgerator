@@ -32,4 +32,7 @@ class InventoryItem {
     this.imagePath,
     this.imageUrl,
   });
+
+  bool get isExpired => expiryDate.isBefore(DateTime.now());
+  int get daysLeft => expiryDate.difference(DateTime.now()).inDays;
 }

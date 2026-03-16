@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 
 import 'screens/splash_intro.dart';
 import 'screens/home_screen.dart';
+import 'services/secure_storage_service.dart';
 import 'services/notification_service.dart';
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
@@ -48,10 +49,6 @@ void main() async {
     }
   });
 
-  // Check login state
-  final prefs = await SharedPreferences.getInstance();
-  final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-
   // Fetch admin-set minimum thresholds from backend (non-blocking)
   AppSettings.fetchAdminThresholds();
 
@@ -65,15 +62,13 @@ void main() async {
           return provider;
         }),
       ],
-      child: SmridgeApp(isLoggedIn: isLoggedIn),
+      child: const SmridgeApp(),
     ),
   );
 }
 
 class SmridgeApp extends StatelessWidget {
-  final bool isLoggedIn;
-  
-  const SmridgeApp({super.key, required this.isLoggedIn});
+  const SmridgeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -104,6 +99,7 @@ class SmridgeApp extends StatelessWidget {
     );
 
     return MaterialApp(
+      title: 'Smridge',
       debugShowCheckedModeBanner: false,
       theme: finalTheme,
       home: const SplashIntro(),

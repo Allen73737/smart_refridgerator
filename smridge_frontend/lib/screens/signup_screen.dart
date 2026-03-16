@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
+import '../services/secure_storage_service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -52,9 +53,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       setState(() => isLoading = false);
 
       if (token != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('token', token);
+        await SecureStorageService.saveToken(token);
 
         Navigator.pushAndRemoveUntil(
           context,

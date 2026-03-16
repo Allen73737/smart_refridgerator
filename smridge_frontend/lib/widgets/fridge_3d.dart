@@ -17,6 +17,7 @@ class Fridge3D extends StatefulWidget {
   final VoidCallback onAddPressed;
   final Function(int) onDelete;
   final Function(int, InventoryItem) onEdit;
+  final Function(InventoryItem)? onItemTap; // NEW
 
   const Fridge3D({
     super.key,
@@ -25,20 +26,21 @@ class Fridge3D extends StatefulWidget {
     required this.onAddPressed,
     required this.onDelete,
     required this.onEdit,
+    this.onItemTap, // NEW
   });
 
   @override
-  State<Fridge3D> createState() => _Fridge3DState();
+  State<Fridge3D> createState() => Fridge3DState();
 }
 
-class _Fridge3DState extends State<Fridge3D>
+class Fridge3DState extends State<Fridge3D>
     with TickerProviderStateMixin {
 
   late AnimationController cameraController;
   late AnimationController doorController;
 
   bool showInventoryList = false;
-  final ESP32Simulator _simulator = ESP32Simulator();
+  final ESP32Simulator simulator = ESP32Simulator();
   bool _isDoorOpenSensor = false;
   bool _isThresholdDanger = false;
   int _prevInventoryCount = 0;
@@ -70,7 +72,7 @@ class _Fridge3DState extends State<Fridge3D>
   void _startSensorPolling() {
     Future.delayed(const Duration(seconds: 1), () {
       if (!mounted) return;
-      final data = _simulator.getData();
+      final data = simulator.getData();
       
       // Removed aggressive door control from simulator polling.
       // We will only listen to `widget.selectedTab` changes or manual user interaction.
@@ -100,10 +102,10 @@ class _Fridge3DState extends State<Fridge3D>
     }
     _prevInventoryCount = widget.inventory.length;
 
-    cameraController.forward(from: 0);
-
-    // Only automatically open or close based on explicit tab changes
+    // ✅ FIX: Only trigger camera animation when the tab actually changes
     if (oldWidget.selectedTab != widget.selectedTab) {
+      cameraController.forward(from: 0);
+
       if (widget.selectedTab == 2) {
         _openDoor(); // Auto-open when 'Inventory' pressed
       } else if (oldWidget.selectedTab == 2) {
@@ -551,24 +553,73 @@ class _Fridge3DState extends State<Fridge3D>
 
     final item = widget.inventory[index];
 
+    ImageProvider? imageProvider;
+    if (item.imagePath != null && item.imagePath!.isNotEmpty) {
+      final file = File(item.imagePath!);
+      if (file.existsSync()) {
+        imageProvider = FileImage(file);
+      }
+    }
+    
+    if (imageProvider == null && item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+      imageProvider = NetworkImage(item.imageUrl!);
+    }
+
     return GestureDetector(
-      onTap: () => showEditPanel(index),
-      child: Container(
-        width: 90,
-        height: 90,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          image: item.imagePath != null
-              ? DecorationImage(
-                  image:
-                      FileImage(File(item.imagePath!)),
-                  fit: BoxFit.cover,
-                )
-              : null,
-          color: item.imagePath == null
-              ? Colors.white10
-              : null,
-        ),
+      onTap: () {
+        if (widget.onItemTap != null) {
+          widget.onItemTap!(item);
+        } else {
+          showEditPanel(index);
+        }
+      },
+      child: Stack(
+        children: [
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              image: imageProvider != null
+                  ? DecorationImage(
+                      image: imageProvider,
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+              color: imageProvider == null
+                  ? Colors.white10
+                  : null,
+            ),
+            child: imageProvider == null
+                ? const Icon(Icons.fastfood, color: Colors.white24)
+                : null,
+          ),
+          if (item.expiryDate.isBefore(DateTime.now()))
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.8),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(18),
+                    topRight: Radius.circular(18),
+                  ),
+                ),
+                child: const Text(
+                  "EXPIRED",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -680,26 +731,13 @@ class _Fridge3DState extends State<Fridge3D>
                           child: ListTile(
                             onTap: () {
                               setState(() => showInventoryList = false);
-                              showEditPanel(index);
+                              if (widget.onItemTap != null) {
+                                widget.onItemTap!(item);
+                              } else {
+                                showEditPanel(index);
+                              }
                             },
-                            leading: item.imagePath != null
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Image.file(
-                                      File(item.imagePath!),
-                                      width: 50,
-                                      height: 50,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  )
-                                : Container(
-                                    width: 50, height: 50,
-                                    decoration: BoxDecoration(
-                                      color: isLight ? Colors.teal.withOpacity(0.2) : Colors.tealAccent.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(Icons.inventory, color: isLight ? Colors.teal : Colors.tealAccent),
-                                  ),
+                            leading: _buildInventoryItemImage(item, isLight),
                             title: Text(item.name, style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
                             subtitle: Padding(
                               padding: const EdgeInsets.only(top: 4.0),
@@ -930,6 +968,67 @@ class _Fridge3DState extends State<Fridge3D>
           },
         );
       },
+    );
+  }
+
+  Widget _buildInventoryItemImage(InventoryItem item, bool isLight) {
+    ImageProvider? provider;
+    if (item.imagePath != null && item.imagePath!.isNotEmpty) {
+      final file = File(item.imagePath!);
+      if (file.existsSync()) provider = FileImage(file);
+    }
+    if (provider == null && item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+      provider = NetworkImage(item.imageUrl!);
+    }
+
+    if (provider != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image(
+          image: provider,
+          width: 50,
+          height: 50,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        Container(
+          width: 50, height: 50,
+          decoration: BoxDecoration(
+            color: isLight ? Colors.teal.withOpacity(0.2) : Colors.tealAccent.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(Icons.inventory, color: isLight ? Colors.teal : Colors.tealAccent),
+        ),
+        if (item.expiryDate.isBefore(DateTime.now()))
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.8),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                  topRight: Radius.circular(8),
+                ),
+              ),
+              child: const Text(
+                "EXP",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
