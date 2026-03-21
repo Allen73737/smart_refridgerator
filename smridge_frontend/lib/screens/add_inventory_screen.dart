@@ -14,13 +14,14 @@ import '../utils/category_helper.dart';
 import 'package:intl/intl.dart';
 import '../utils/snackbar_utils.dart';
 import '../utils/expiry_estimator.dart';
-import '../utils/expiry_estimator.dart';
 import '../services/audio_service.dart';
 import '../services/api_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/fridge_customization_provider.dart';
+import '../services/calendar_service.dart';
+import '../services/socket_service.dart';
 
 class AddInventoryScreen extends StatefulWidget {
   final Function(InventoryItem) onSave;
@@ -50,6 +51,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   final notesController = TextEditingController();
 
   DateTime? selectedDate;
+  DateTime? selectedReminderDate; // 👈 New field
+  bool syncToCalendar = false; // 👈 New field
   String? imagePath;
   String? imageUrl;
   bool isPackaged = false;
@@ -129,11 +132,47 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       imageUrl = null;
       barcode = null;
       expirySource = null;
-      selectedDate = DateTime.now();
+      selectedDate = DateTime.now().add(const Duration(days: 7));
       _startLoadCellSimulation();
     }
 
     nameController.addListener(_onNameChanged);
+  }
+
+  Future<void> _pickDateTime({required bool isExpiry}) async {
+    DateTime initial = (isExpiry ? selectedDate : selectedReminderDate) ?? DateTime.now();
+    
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+    );
+
+    if (pickedDate != null && mounted) {
+      final pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(initial),
+      );
+
+      if (pickedTime != null) {
+        setState(() {
+          final fullDateTime = DateTime(
+            pickedDate.year,
+            pickedDate.month,
+            pickedDate.day,
+            pickedTime.hour,
+            pickedTime.minute,
+          );
+          if (isExpiry) {
+            selectedDate = fullDateTime;
+            expirySource = "manual";
+          } else {
+            selectedReminderDate = fullDateTime;
+          }
+        });
+      }
+    }
   }
 
   void _onNameChanged() {
@@ -187,18 +226,15 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   }
 
   void _startLoadCellSimulation() {
-    // Simulates a load cell reading fluctuations when placing an item in the fridge
-    _weightSimulationTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
-      if (!mounted) return;
-      setState(() {
-        // Mock a steady rise to a random weight then stabilize
-        if (currentWeight < 2.5) {
-          currentWeight += Random().nextDouble() * 0.5;
-        } else {
-          weightController.text = currentWeight.toStringAsFixed(2);
-          _weightSimulationTimer?.cancel();
-        }
-      });
+    SocketService.on('sensor_data', _onHardwareWeightUpdate);
+  }
+
+  void _onHardwareWeightUpdate(dynamic data) {
+    if (!mounted) return;
+    setState(() {
+      double realWeight = (data['weight'] as num).toDouble();
+      currentWeight = realWeight;
+      weightController.text = currentWeight.toStringAsFixed(3);
     });
   }
 
@@ -206,6 +242,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   void dispose() {
     _aiDebounceTimer?.cancel();
     _weightSimulationTimer?.cancel();
+    SocketService.off('sensor_data', _onHardwareWeightUpdate);
     nameController.removeListener(_onNameChanged);
     nameController.dispose();
     brandController.dispose();
@@ -532,27 +569,50 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                           child: ListTile(
                             leading: Icon(Icons.calendar_month, color: isLight ? Colors.teal : Colors.tealAccent),
-                            title: Text(expirySource == "estimated" ? "Expiry Date (Estimated)" : "Expiry Date", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                            title: Text(expirySource == "estimated" ? "Expiry Date & Time (Estimated)" : "Expiry Date & Time", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
                             subtitle: Text(
-                              selectedDate == null ? "Select Date" : selectedDate!.toLocal().toString().split(' ')[0],
+                              selectedDate == null ? "Select Date & Time" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedDate!),
                               style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
                             ),
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: selectedDate ?? DateTime.now(),
-                                firstDate: DateTime.now(),
-                                lastDate: DateTime.now().add(const Duration(days: 3650)),
-                              );
-                              if (picked != null) {
-                                setState(() {
-                                  selectedDate = picked;
-                                  expirySource = "manual";
-                                });
-                              }
-                            },
+                            onTap: () => _pickDateTime(isExpiry: true),
                           ),
                         ).animate().slideY(begin: 0.1).fade(delay: 200.ms),
+
+                        const SizedBox(height: 15),
+
+                        // Custom Reminder Section
+                        Container(
+                          decoration: BoxDecoration(
+                            color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: isLight ? Colors.transparent : Colors.white10),
+                          ),
+                          child: Column(
+                            children: [
+                              ListTile(
+                                leading: Icon(Icons.alarm_add, color: isLight ? Colors.orange : Colors.orangeAccent),
+                                title: Text("Custom Reminder (Optional)", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                                subtitle: Text(
+                                  selectedReminderDate == null ? "None" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedReminderDate!),
+                                  style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                                ),
+                                trailing: selectedReminderDate != null ? IconButton(
+                                  icon: const Icon(Icons.close, size: 18),
+                                  onPressed: () => setState(() => selectedReminderDate = null),
+                                ) : null,
+                                onTap: () => _pickDateTime(isExpiry: false),
+                              ),
+                              const Divider(height: 1, indent: 60, endIndent: 20, color: Colors.white10),
+                              SwitchListTile(
+                                secondary: Icon(Icons.calendar_today, color: isLight ? Colors.blue : Colors.blueAccent),
+                                title: const Text("Remind via Google Calendar", style: TextStyle(fontSize: 13)),
+                                value: syncToCalendar,
+                                activeColor: Colors.blueAccent,
+                                onChanged: (val) => setState(() => syncToCalendar = val),
+                              ),
+                            ],
+                          ),
+                        ).animate().slideY(begin: 0.1).fade(delay: 220.ms),
 
                         const SizedBox(height: 15),
 
@@ -740,10 +800,16 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 barcode: barcode,
                                 expiryDate: selectedDate!,
                                 expirySource: expirySource,
+                                reminderDate: selectedReminderDate,
                                 imagePath: imagePath,
                                 imageUrl: imageUrl,
                                 dateAdded: widget.existingItem?.dateAdded ?? widget.initialItem?.dateAdded ?? DateTime.now(),
                               );
+
+                              // 🔹 Handle Calendar Sync if toggled
+                              if (syncToCalendar) {
+                                CalendarService.syncItemExpiry(item);
+                              }
 
                               widget.onSave(item);
                               final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);

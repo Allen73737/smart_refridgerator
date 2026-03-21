@@ -26,7 +26,7 @@ const getSensorScore = (sensors) => {
 /**
  * Calculates a dynamic freshness score (0-100)
  */
-exports.calculateFreshness = async (item) => {
+exports.calculateFreshness = async (item, preFetchedSensors = null) => {
   try {
     const today = new Date();
     const expiry = new Date(item.expiryDate);
@@ -45,7 +45,7 @@ exports.calculateFreshness = async (item) => {
     }
 
     // 2. Sensor Score (0-60 points)
-    const sensors = await SensorData.findOne().sort({ timestamp: -1 });
+    const sensors = preFetchedSensors || await SensorData.findOne().sort({ timestamp: -1 }).lean();
     const sensorDetails = getSensorScore(sensors);
 
     const finalScore = Math.round(timeScore + sensorDetails.total);

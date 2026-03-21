@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../providers/theme_provider.dart';
@@ -199,7 +200,20 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(msg["content"]!, style: TextStyle(color: textColor, fontSize: 16)),
+                            MarkdownBody(
+                              data: msg["content"]!,
+                              styleSheet: MarkdownStyleSheet(
+                                p: TextStyle(color: textColor, fontSize: 16, height: 1.5),
+                                h3: TextStyle(
+                                  color: isLight ? Colors.teal.shade800 : Colors.tealAccent, 
+                                  fontWeight: FontWeight.bold, 
+                                  fontSize: 18,
+                                  height: 2.0,
+                                ),
+                                listBullet: TextStyle(color: textColor),
+                                strong: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
                             if (msg["action"] != null && msg["action"]!.isNotEmpty) ...[
                               if (msg["action"] == "ADD_ITEM_AI" || 
                                   msg["action"] == "ADD_ITEM" || 

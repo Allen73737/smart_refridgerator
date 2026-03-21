@@ -3,11 +3,14 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/inventory_item.dart';
 import '../services/api_service.dart';
 import '../providers/theme_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/calendar_service.dart';
+import 'package:intl/intl.dart';
 
 class ProductDetailsOverlay extends StatefulWidget {
   final InventoryItem item;
@@ -48,8 +51,8 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
   @override
   void initState() {
     super.initState();
-    // No automatic trigger here to save initial load, 
-    // it will trigger on swipe in onPageChanged.
+    // 🔹 Prefetch analysis immediately for "Instant intelligence" experience
+    _runGroqAnalysis();
   }
 
   // REMOVED: Separate fetchers. We now use Unified _runGroqAnalysis.
@@ -113,8 +116,13 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
           children: [
             _sectionHeader(Icons.info_outline, "Product Overview", isLight ? Colors.teal : Colors.tealAccent),
             const SizedBox(height: 12),
-            Text(a['overview']?.toString() ?? "Gathering overview...", 
-              style: TextStyle(color: textColor, fontSize: 14, height: 1.6, letterSpacing: 0.2)),
+            MarkdownBody(
+              data: a['overview']?.toString() ?? "Gathering overview...",
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
+                listBullet: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent),
+              ),
+            ),
             const SizedBox(height: 24),
             _sectionHeader(Icons.restaurant_menu, "Nutritional Facts", isLight ? Colors.teal : Colors.tealAccent),
             const SizedBox(height: 12),
@@ -625,8 +633,35 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                   _buildModernInfoRow(Icons.production_quantity_limits, "Quantity", "${widget.item.quantity} units", textColor, isLight),
                   if (widget.item.weight != null && widget.item.weight! > 0)
                     _buildModernInfoRow(Icons.monitor_weight, "WeightBaseline", "${widget.item.weight} kg", textColor, isLight),
-                  _buildModernInfoRow(Icons.calendar_month, "Expiry", widget.item.expiryDate.toLocal().toString().split(' ')[0], textColor, isLight),
-                  _buildModernInfoRow(Icons.info_outline, "Auto-Estimation", widget.item.expirySource ?? 'Manual', textColor, isLight),
+                  _buildModernInfoRow(Icons.calendar_month, "Expiry", DateFormat('MMM dd, yyyy - HH:mm').format(widget.item.expiryDate), textColor, isLight),
+                  _buildModernInfoRow(Icons.info_outline, "Auto-Estimation", widget.item.expirySource == 'estimated' ? 'Estimated' : (widget.item.expirySource ?? 'Manual'), textColor, isLight),
+                  if (widget.item.reminderDate != null)
+                    _buildModernInfoRow(Icons.alarm, "Reminder", DateFormat('MMM dd, yyyy - HH:mm').format(widget.item.reminderDate!), textColor, isLight),
+                  
+                  // 🔹 New Calendar Sync Action
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: InkWell(
+                      onTap: () => CalendarService.syncItemExpiry(widget.item),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: (isLight ? Colors.blue : Colors.blueAccent).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: (isLight ? Colors.blue : Colors.blueAccent).withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.calendar_today, size: 16, color: isLight ? Colors.blue : Colors.blueAccent),
+                            const SizedBox(width: 8),
+                            Text("Sync to Google Calendar", style: TextStyle(color: isLight ? Colors.blue : Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

@@ -268,7 +268,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 ),
                               ),
                               trailing: !isRead ? IconButton(
-                                icon: Icon(Icons.check_circle_outline, color: color, size: 20),
+                                icon: Icon(Icons.done_all, color: color, size: 20),
                                 onPressed: () async {
                                   final prefs = await SharedPreferences.getInstance();
                                   final token = prefs.getString('token');
@@ -278,7 +278,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                   }
                                 },
                                 tooltip: "Mark as Read",
-                              ) : null,
+                              ) : Icon(Icons.done_all, color: color.withOpacity(0.5), size: 18),
                             ),
                         ),
                       ),

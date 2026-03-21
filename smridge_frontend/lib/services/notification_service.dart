@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'audio_service.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
@@ -12,12 +13,37 @@ class NotificationService {
   NotificationService._internal();
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
 
   Future<void> init() async {
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const settings = InitializationSettings(android: androidSettings);
 
     await _plugin.initialize(settings);
+  }
+
+  Future<void> requestPermissions() async {
+    NotificationSettings settings = await _fcm.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print('User granted notification permission');
+    } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      print('User granted provisional notification permission');
+    } else {
+      print('User declined or has not accepted notification permission');
+    }
+  }
+
+  Future<String?> getToken() async {
+    return await _fcm.getToken();
+  }
+
+  void listenToTokenRefresh(Function(String) onRefresh) {
+    _fcm.onTokenRefresh.listen(onRefresh);
   }
 
   Future<void> showNotification(String title, String body, {BuildContext? context}) async {

@@ -23,12 +23,14 @@ import 'package:google_fonts/google_fonts.dart';
 import '../widgets/wave_background.dart';
 import 'barcode_scanner_screen.dart';
 import 'account_profile_screen.dart';
+import '../services/notification_service.dart';
 import 'privacy_policy_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
 import 'help_support_screen.dart';
 import 'theme_settings_screen.dart';
+import 'about_screen.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/liquid_freshness_bar.dart'; // Added for completeness, though already used
 import '../widgets/system_monitoring_indicators.dart'; // New import
@@ -59,7 +61,9 @@ class _HomeScreenState extends State<HomeScreen> {
   AddFlowState _addFlowState = AddFlowState.choice;
   InventoryItem? _scannedItem;
   int? _editItemIndex;
-  int unreadNotifications = 0; // 👈 New state
+  int unreadNotifications = 0;
+  DateTime? _lastSyncTime;
+  final Duration _syncThrottle = const Duration(seconds: 10);
 
   //////////////////////////////////////////////////////////////
   // 🔹 PROFILE DATA
@@ -89,24 +93,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadInventory();
     _fetchNotificationsCount();
     _initSocket();
-    _startSensorSync();
-  }
-
-  Timer? _sensorSyncTimer;
-  void _startSensorSync() {
-    _sensorSyncTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        final data = _fridgeKey.currentState?.simulator.getData();
-        if (data != null) {
-          ApiService.pushSensorData(data.temp, data.humidity, data.freshness);
-        }
-      }
-    });
+    _setupNotifications();
   }
 
   @override
   void dispose() {
-    _sensorSyncTimer?.cancel();
     SocketService.off('inventory_update');
     SocketService.off('sensor_data');
     SocketService.off('notification_update');
@@ -123,6 +114,31 @@ class _HomeScreenState extends State<HomeScreen> {
           unreadNotifications = notifs.where((n) => n != null && n['isRead'] == false).length.toInt();
         });
       }
+    }
+  }
+
+  Future<void> _setupNotifications() async {
+    final notificationService = NotificationService();
+    
+    // 1️⃣ Request Permissions
+    await notificationService.requestPermissions();
+
+    // 2️⃣ Sync Token on Startup
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('token');
+    
+    if (authToken != null) {
+      final fcmToken = await notificationService.getToken();
+      if (fcmToken != null) {
+        print("📲 Syncing FCM Token: $fcmToken");
+        await ApiService.saveFcmToken(fcmToken, authToken);
+      }
+      
+      // 3️⃣ Listen for Token Refreshes
+      notificationService.listenToTokenRefresh((newToken) async {
+        print("📲 Token Refreshed: $newToken");
+        await ApiService.saveFcmToken(newToken, authToken);
+      });
     }
   }
 
@@ -614,8 +630,9 @@ class _HomeScreenState extends State<HomeScreen> {
       // 🔹 DRAWER (HAMBURGER MENU)
       ////////////////////////////////////////////////////////////
 
-      drawer: Drawer(
-        backgroundColor: Colors.transparent,
+      drawer: RepaintBoundary(
+        child: Drawer(
+          backgroundColor: Colors.transparent,
         child: Container(
           decoration: BoxDecoration(
             color: isLight ? Colors.white.withOpacity(0.95) : (isDark ? Colors.grey.shade900.withOpacity(0.95) : null),
@@ -733,6 +750,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
 
+              ListTile(
+                leading: Icon(Icons.info_outline, color: isLight ? Colors.teal : Colors.tealAccent),
+                title: Text("About Smridge", style: TextStyle(color: isLight ? Colors.black87 : Colors.white, fontSize: 16)),
+                onTap: () {
+                  Navigator.pop(context); // Close drawer
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()));
+                },
+              ),
+
               const Spacer(),
               Divider(color: isLight ? Colors.black12 : Colors.white24, thickness: 1, indent: 20, endIndent: 20),
 
@@ -749,6 +775,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
       ),
 
       // REMOVED: Replaced with draggable icon in body Stack
@@ -779,7 +806,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           
-          const Positioned.fill(child: WaveBackground()),
+          const Positioned.fill(child: RepaintBoundary(child: WaveBackground())),
 
           //////////////////////////////////////////////////////////
           // INDEXED STACK
@@ -1114,11 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   void _triggerAnalysisSync(InventoryItem item) async {
-    // 🔹 Instant sync for "Elite intelligence" before opening overlay
-    final data = _fridgeKey.currentState?.simulator.getData();
-    if (data != null) {
-       await ApiService.pushSensorData(data.temp, data.humidity, data.freshness);
-    }
+    // 🔹 Instant state update for immediate UI response
     if (mounted) {
       setState(() {
         _selectedItemForDetails = item;

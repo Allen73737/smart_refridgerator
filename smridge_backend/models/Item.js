@@ -14,6 +14,7 @@ const itemSchema = new mongoose.Schema({
   brand: String,
   expiryDate: Date,
   expirySource: { type: String, default: 'manual' },
+  reminderDate: Date, // 👈 Added for custom reminders
   notes: String,
   image: String, // 👈 image field
   freshnessScore: { type: Number, default: 100 },

@@ -6,7 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
-import '../services/esp32_simulator.dart';
+import '../services/socket_service.dart';
 import '../widgets/system_monitoring_indicators.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
@@ -21,8 +21,6 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool isLoading = true;
-  late Timer _timer;
-  final ESP32Simulator _simulator = ESP32Simulator();
   
   List<FlSpot> _tempData = [];
   List<FlSpot> _humData = [];
@@ -34,75 +32,42 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // Seed initial data points immediately for instant graph display
-    for (int i = 0; i < 5; i++) {
-      final simData = _simulator.getData();
-      _tempData.add(FlSpot(_timeX, simData.temp.toDouble()));
-      _humData.add(FlSpot(_timeX, simData.humidity.toDouble()));
-      _freshData.add(FlSpot(_timeX, simData.freshness.toDouble()));
-      _timeX++;
-    }
     _lastUpdated = DateTime.now();
-    _syncStatus = "Simulated Synced";
-    isLoading = false;
-
-    // Fetch new data every 3 seconds for live feel
-    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (mounted) _fetchInitialData();
-    });
+    SocketService.on('sensor_data', _onHardwareUpdate);
   }
 
-  Future<void> _fetchInitialData() async {
-    // SIMULATION MODE: Appending local ESP32 simulation points directly
-    setState(() => _syncStatus = "Syncing");
-
-    final simData = _simulator.getData();
+  void _onHardwareUpdate(dynamic data) {
+    if (!mounted) return;
 
     setState(() {
       double x = _timeX;
       _timeX++;
 
-      // Keep last 30 readings
       if (_tempData.length >= 30) {
         _tempData.removeAt(0);
         _humData.removeAt(0);
         _freshData.removeAt(0);
       }
 
-      _tempData.add(FlSpot(x, simData.temp.toDouble()));
-      _humData.add(FlSpot(x, simData.humidity.toDouble()));
-      _freshData.add(FlSpot(x, simData.freshness.toDouble()));
+      double temp = (data['temperature'] as num).toDouble();
+      double hum = (data['humidity'] as num).toDouble();
+      double fresh = (data['calculatedFreshness'] as num).toDouble();
+
+      _tempData.add(FlSpot(x, temp));
+      _humData.add(FlSpot(x, hum));
+      _freshData.add(FlSpot(x, fresh));
 
       _lastUpdated = DateTime.now();
-      _syncStatus = "Simulated Synced";
+      
+      bool isReal = data['isReal'] ?? false;
+      _syncStatus = isReal ? "ESP32 Connected" : "ESP32 Connected (#)";
       isLoading = false;
     });
-
-    /* --- REAL BACKEND LOGIC (Uncomment when ESP32 is physically pushing to DB) ---
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-
-    if (token == null) return;
-
-    try {
-      final response = await ApiService.getAnalytics(token);
-      
-      if (!mounted) return;
-
-      if (response != null) {
-        final recentTemps = response['temperature'] as List<dynamic>? ?? [];
-        ...
-      }
-    } catch (e) {
-      ...
-    }
-    ----------------------------------------------------------------------------- */
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    SocketService.off('sensor_data', _onHardwareUpdate);
     super.dispose();
   }
 

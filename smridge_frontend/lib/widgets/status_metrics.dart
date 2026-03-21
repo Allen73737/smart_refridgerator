@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../config/app_settings.dart';
-import '../services/esp32_simulator.dart';
+import '../services/socket_service.dart';
 import '../screens/analytics_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
@@ -19,7 +19,6 @@ class _StatusMetricsState
     with TickerProviderStateMixin {
 
   late AnimationController pulseController;
-  final ESP32Simulator _simulator = ESP32Simulator();
 
   double temperature = 8;
   double humidity = 60;
@@ -36,27 +35,19 @@ class _StatusMetricsState
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
 
-    // Simulated dynamic data
-    Future.delayed(
-      const Duration(milliseconds: 800),
-      simulateData,
-    );
+    _initSocketListeners();
   }
 
-  void simulateData() {
-    if (!mounted) return;
-    final data = _simulator.getData();
-    setState(() {
-      temperature = data.temp.toDouble();
-      humidity = data.humidity.toDouble();
-      freshness = data.freshness.toDouble();
-      isDoorOpen = data.isDoorOpen;
+  void _initSocketListeners() {
+    SocketService.on('sensor_data', (data) {
+      if (!mounted) return;
+      setState(() {
+        temperature = (data['temperature'] as num).toDouble();
+        humidity = (data['humidity'] as num).toDouble();
+        freshness = (data['calculatedFreshness'] as num).toDouble();
+        isDoorOpen = data['doorStatus'] == 'open';
+      });
     });
-
-    Future.delayed(
-      const Duration(seconds: 2),
-      simulateData,
-    );
   }
 
   @override

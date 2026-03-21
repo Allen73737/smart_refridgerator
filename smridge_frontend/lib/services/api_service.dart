@@ -103,6 +103,23 @@ class ApiService {
     }
   }
 
+  static Future<bool> saveFcmToken(String fcmToken, String authToken) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseDomain/api/user/save-fcm-token'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-auth-token': authToken
+        },
+        body: jsonEncode({'token': fcmToken}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Error saving FCM Token: $e");
+      return false;
+    }
+  }
+
   static Future<bool> uploadProfileImage(File image, String token) async {
     try {
       var request = http.MultipartRequest('PUT', Uri.parse('$baseDomain/api/user/profile-image'));
@@ -173,6 +190,7 @@ class ApiService {
               brand: json['brand'],
               expiryDate: json['expiryDate'] != null ? DateTime.parse(json['expiryDate']) : DateTime.now(),
               expirySource: json['expirySource'],
+              reminderDate: json['reminderDate'] != null ? DateTime.parse(json['reminderDate']) : null,
               notes: json['notes'],
               dateAdded: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
               // Assuming backend uses base domain for local images
@@ -291,6 +309,7 @@ class ApiService {
       if (item.brand != null) request.fields['brand'] = item.brand!;
       request.fields['expiryDate'] = item.expiryDate.toIso8601String();
       if (item.expirySource != null) request.fields['expirySource'] = item.expirySource!;
+      if (item.reminderDate != null) request.fields['reminderDate'] = item.reminderDate!.toIso8601String();
       if (item.notes != null) request.fields['notes'] = item.notes!;
       if (item.imageUrl != null) request.fields['imageUrl'] = item.imageUrl!;
 
@@ -330,6 +349,7 @@ class ApiService {
       if (item.brand != null) request.fields['brand'] = item.brand!;
       request.fields['expiryDate'] = item.expiryDate.toIso8601String();
       if (item.expirySource != null) request.fields['expirySource'] = item.expirySource!;
+      if (item.reminderDate != null) request.fields['reminderDate'] = item.reminderDate!.toIso8601String();
       if (item.notes != null) request.fields['notes'] = item.notes!;
       if (item.imageUrl != null) request.fields['imageUrl'] = item.imageUrl!;
 

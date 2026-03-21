@@ -4,7 +4,7 @@ import 'dart:ui'; // Added for ImageFilter
 import 'package:flutter/material.dart';
 import '../models/inventory_item.dart';
 import 'status_metrics.dart';
-import '../services/esp32_simulator.dart';
+import '../services/socket_service.dart';
 import '../config/app_settings.dart';
 import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
@@ -40,7 +40,6 @@ class Fridge3DState extends State<Fridge3D>
   late AnimationController doorController;
 
   bool showInventoryList = false;
-  final ESP32Simulator simulator = ESP32Simulator();
   bool _isDoorOpenSensor = false;
   bool _isThresholdDanger = false;
   int _prevInventoryCount = 0;
@@ -66,27 +65,26 @@ class Fridge3DState extends State<Fridge3D>
       duration: const Duration(milliseconds: 500),
     );
 
-    _startSensorPolling();
+    _initSocketListeners();
   }
 
-  void _startSensorPolling() {
-    Future.delayed(const Duration(seconds: 1), () {
+  void _initSocketListeners() {
+    SocketService.on('sensor_data', (data) {
       if (!mounted) return;
-      final data = simulator.getData();
-      
-      // Removed aggressive door control from simulator polling.
-      // We will only listen to `widget.selectedTab` changes or manual user interaction.
 
-      bool tempDanger = data.temp > AppSettings.temperatureThreshold;
-      bool humDanger = data.humidity > AppSettings.humidityThreshold;
-      bool freshDanger = data.freshness < AppSettings.freshnessThreshold;
+      double temp = (data['temperature'] as num).toDouble();
+      double hum = (data['humidity'] as num).toDouble();
+      double fresh = (data['calculatedFreshness'] as num).toDouble();
+      bool door = data['doorStatus'] == 'open';
+
+      bool tempDanger = temp > AppSettings.temperatureThreshold;
+      bool humDanger = hum > AppSettings.humidityThreshold;
+      bool freshDanger = fresh < AppSettings.freshnessThreshold;
 
       setState(() {
-        _isDoorOpenSensor = data.isDoorOpen;
+        _isDoorOpenSensor = door;
         _isThresholdDanger = tempDanger || humDanger || freshDanger;
       });
-
-      _startSensorPolling();
     });
   }
 

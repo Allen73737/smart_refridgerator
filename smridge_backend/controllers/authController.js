@@ -2,6 +2,7 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const logActivity = require("../utils/activityLogger");
 
 exports.signup = async (req, res) => {
   try {
@@ -11,6 +12,8 @@ exports.signup = async (req, res) => {
     if (existing) return res.status(400).json({ msg: "User already exists" });
 
     const user = await User.create({ name, email, password, authProvider: 'email' });
+
+    await logActivity(user._id, 'REGISTER', 'user', `New user registered: ${user.email}`);
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
     res.status(201).json({ token, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
@@ -22,8 +25,9 @@ exports.signup = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    console.log(`--- [DEBUG] Login Attempt: ${email} ---`);
+    let { email, password } = req.body;
+    if (email) email = email.trim();
+    console.log(`--- [DEBUG] Login Attempt: "${email}" ---`);
 
     const user = await User.findOne({ email });
     if (!user) {
@@ -53,6 +57,8 @@ exports.login = async (req, res) => {
 
     user.lastActive = Date.now();
     await user.save({ validateBeforeSave: false });
+
+    await logActivity(user._id, 'LOGIN', user.role, `User logged in via email: ${user.email}`);
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
     console.log(`--- [DEBUG] Login Successful for ${email} ---`);
@@ -99,6 +105,8 @@ exports.googleLogin = async (req, res) => {
 
     user.lastActive = Date.now();
     await user.save({ validateBeforeSave: false });
+
+    await logActivity(user._id, 'LOGIN', user.role, `User logged in via Google: ${user.email}`);
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
     res.json({ token, user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });

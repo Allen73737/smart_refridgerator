@@ -9,42 +9,39 @@ require("dotenv").config();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 // Helper: Fetch best Unsplash image for a query
-// ─────────────────────────────────────────────
+// ---------------------------------------------
 async function fetchUnsplashImage(query) {
     try {
-        console.log("🔍 Searching Unsplash for:", query);
+        console.log("Searching Unsplash for:", query);
         const resp = await axios.get("https://api.unsplash.com/search/photos", {
-            params: { query, per_page: 5 }, // Fetch more to increase chances, we still use the first
+            params: { query, per_page: 5 },
             headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` },
         });
         const results = resp.data.results;
         if (results && results.length > 0) {
-            // 🔹 Variety: Pick randomly from top 3 to avoid "same image" feeling for similar items
             const limit = Math.min(results.length, 3);
             const randomIndex = Math.floor(Math.random() * limit);
             const selected = results[randomIndex].urls.regular;
-            console.log(`✅ Unsplash selected (index ${randomIndex}):`, selected);
+            console.log(`Unsplash selected (index ${randomIndex}):`, selected);
             return selected;
         }
-        console.warn("⚠️ Unsplash returned no results for:", query);
+        console.warn("Unsplash returned no results for:", query);
     } catch (e) {
-        console.error("❌ Unsplash fetch error:", e.response?.data || e.message);
+        console.error("Unsplash fetch error:", e.response?.data || e.message);
     }
     return null;
 }
 
-// ─────────────────────────────────────────────
-// 🟢 UNIFIED FOOD ANALYSIS  →  POST /api/ai/analyze
-// Combines: product overview, freshness score, storage advice, recipe, category
-// ─────────────────────────────────────────────
+// ---------------------------------------------
+// UNIFIED FOOD ANALYSIS -> POST /api/ai/analyze
+// ---------------------------------------------
 exports.analyzeFood = async (req, res) => {
     try {
         const { name, expiryDate } = req.body;
         if (!name) return res.status(400).json({ message: "Food name required" });
 
-        // Get latest sensor data
         const sensors = await SensorData.findOne().sort({ timestamp: -1 });
         const gas_value   = sensors?.gasLevel    ?? 250;
         const temperature = sensors?.temperature ?? 4;
@@ -53,7 +50,6 @@ exports.analyzeFood = async (req, res) => {
         const current_date = new Date().toISOString().split("T")[0];
         const expiry_date  = expiryDate ? new Date(expiryDate).toISOString().split("T")[0] : "unknown";
 
-        // Fetch current inventory for recipe context
         const userId = req.user?.id;
         let inventoryContext = "No other items in fridge.";
         if (userId) {
@@ -61,24 +57,23 @@ exports.analyzeFood = async (req, res) => {
             inventoryContext = items.map(i => `${i.name} (Qty: ${i.quantity})`).join(", ");
         }
 
-        // ── Build the strict prompt ──────────────────────────────────────────
         const systemPrompt = `You are an elite food scientist and luxury logistics intelligence unit. 
 Analyze the provided food asset using the provided sensor telemetry and generate a high-density, point-wise analysis.
 
 ## OUTPUT REQUIREMENTS:
 1. **food_name**: Premium name.
 2. **category**: Strict Category.
-3. **overview**: This must be a SINGLE STRING containing a strictly formatted 10-point bulleted list (using \n• for line breaks). Do NOT return an array. Each point should be a concise, precise, and scholarly observation (approx 15-20 words per point). COVER: 
-   • Sensory profile (aroma/texture)
-   • Chemical composition (vitamins/minerals)
-   • Historical/Cultural provenance
-   • Optimal ripening/storage conditions
-   • Health impact (antioxidants/gut health)
-   • Culinary versatility
-   • Common culinary pairings
-   • Potential spoilage indicators
-   • Ecological impact/Sustainability
-   • Executive recommendation for consumption.
+3. **overview**: This must be a SINGLE STRING formatted as a clean Markdown bulleted list (using "-" for each point and "\\n" for line breaks). Each point should be a concise, precise, and scholarly observation. COVER: 
+   - Sensory profile (aroma/texture)
+   - Chemical composition (vitamins/minerals)
+   - Historical/Cultural provenance
+   - Optimal ripening/storage conditions
+   - Health impact (antioxidants/gut health)
+   - Culinary versatility
+   - Common culinary pairings
+   - Potential spoilage indicators
+   - Ecological impact/Sustainability
+   - Executive recommendation for consumption.
 4. **nutritional_values**: {calories, protein, carbs, fats}.
 5. **freshness_score**: 0-100 logic.
 6. **freshness_status**: "Elite", "Optimal", "Vibrant", "Sub-Optimal", or "Degraded".
@@ -95,7 +90,7 @@ const userPrompt = `Perform a high-tier analysis for: ${name}.
 Contextual Data:
 - Current Date: ${current_date}
 - Expiry Profile: ${expiry_date}
-- Sensor Telemetry: Gas ${gas_value} ppm, Temp ${temperature}°C, Humidity ${humidity}%
+- Sensor Telemetry: Gas ${gas_value} ppm, Temp ${temperature} Celsius, Humidity ${humidity}%
 - Available Inventory for Pairings: ${inventoryContext}
 
 Requirements: 
@@ -104,7 +99,6 @@ Requirements:
 - Provide 3 distinct gourmet recipes utilizing at least 2 items from the inventory.
 - Each recipe must have 8-10 professional steps describing professional culinary techniques.`;
 
-        // ── Call Groq ────────────────────────────────────────────────────────
         const completion = await groq.chat.completions.create({
             model: "llama-3.3-70b-versatile",
             messages: [
@@ -117,31 +111,30 @@ Requirements:
 
         let analysis = JSON.parse(completion.choices[0].message.content);
 
-        // 🔹 NORMALIZE OVERVIEW: Ensure it's a clean string without brackets
         if (Array.isArray(analysis.overview)) {
-            analysis.overview = analysis.overview.map(line => line.replace(/^\[|\]$/g, '').trim()).join('\n• ');
-            if (!analysis.overview.startsWith('• ')) analysis.overview = '• ' + analysis.overview;
-        } else if (typeof analysis.overview === 'string') {
-            analysis.overview = analysis.overview.replace(/^\[|\]$/g, '').trim();
+            analysis.overview = analysis.overview.map(line => line.replace(/^\[|\]$|^• |^- /g, "").trim()).map(line => `- ${line}`).join("\n");
+        } else if (typeof analysis.overview === "string") {
+            analysis.overview = analysis.overview.replace(/^\[|\]$/g, "").trim();
+            if (!analysis.overview.includes("\n") && analysis.overview.includes("•")) {
+                analysis.overview = analysis.overview.split("•").filter(s => s.trim().length > 0).map(s => `- ${s.trim()}`).join("\n");
+            }
         }
 
-        // ── 🔹 PERSIST ANALYSIS TO DB ─────────────────────────────────────────
         if (userId) {
-            const item = await Item.findOne({ userId, name: { $regex: new RegExp(`^${name}$`, "i") } });
+            const item = await Item.findOne({ userId, name: { $regex: new RegExp("^" + name + "$", "i") } });
             if (item) {
                 item.freshnessScore = analysis.freshness_score;
                 item.category = analysis.category || item.category;
-                const overviewSummary = typeof analysis.overview === 'string' 
+                const overviewSummary = typeof analysis.overview === "string" 
                     ? analysis.overview 
-                    : (Array.isArray(analysis.overview) ? analysis.overview.join('\n') : String(analysis.overview));
+                    : (Array.isArray(analysis.overview) ? analysis.overview.join("\n") : String(analysis.overview));
                 item.notes = (item.notes ? item.notes + "\n" : "") + "AI Analysis: " + overviewSummary.substring(0, 100) + "...";
                 await item.save();
             }
         }
 
-        // ── Fetch Unsplash image ─────────────────────────────────────────────
         const imageUrl = await fetchUnsplashImage(
-            analysis.unsplash_search_query || `${name} food fresh`
+            analysis.unsplash_search_query || (name + " food fresh")
         );
 
         res.json({ ...analysis, image_url: imageUrl });
@@ -152,32 +145,29 @@ Requirements:
     }
 };
 
-// ─────────────────────────────────────────────
-// 🟢 AI CHAT ASSISTANT (Groq-powered)  →  POST /api/ai/chat
-// ─────────────────────────────────────────────
+// ---------------------------------------------
+// AI CHAT ASSISTANT -> POST /api/ai/chat
+// ---------------------------------------------
 exports.chatAssistant = async (req, res) => {
     try {
         const { message, history } = req.body;
         const userId = req.user.id;
 
-        const rawItems = await Item.find({ userId });
-        
-        // 🔹 Recalculate freshness on-the-fly for real-time accuracy in chat
+        const rawItems = await Item.find({ userId }).lean();
+        const sensors = await SensorData.findOne().sort({ timestamp: -1 }).lean();
+
+        // 🔹 Recalculate freshness ONCE using pre-fetched sensors
         const items = await Promise.all(rawItems.map(async (i) => {
-            const latestScore = await calculateFreshness(i);
-            return {
-                ...i._doc,
-                freshnessScore: latestScore
-            };
+            const latestScore = await calculateFreshness(i, sensors);
+            return { ...i, freshnessScore: latestScore };
         }));
 
         const inventoryContext = items.length > 0
             ? items.map(i => `${i.name} (Qty: ${i.quantity}, Expires: ${new Date(i.expiryDate).toLocaleDateString()}, Freshness: ${i.freshnessScore}/100)`).join(", ")
             : "Fridge is empty";
 
-        const sensors = await SensorData.findOne().sort({ timestamp: -1 });
         const sensorContext = sensors
-            ? `Fridge Temp: ${sensors.temperature.toFixed(1)}°C, Humidity: ${sensors.humidity}%, Gas: ${sensors.gasLevel}`
+            ? `Fridge Temp: ${sensors.temperature.toFixed(1)} Celsius, Humidity: ${sensors.humidity}%, Gas: ${sensors.gasLevel}`
             : "No sensor data available.";
 
         const messages = [
@@ -187,12 +177,17 @@ exports.chatAssistant = async (req, res) => {
 
 CRITICAL DIRECTIVES:
 1. **Smridgey Persona**: Always identify as Smridgey. You are warm, welcoming, and enjoy a bit of lighthearted conversation. Your tone should be scholarly yet very approachable. **In the very first response of a new conversation, always start with: "Hello! I am Smridgey - The Smridge AI Assistant."**
-2. **Conversational Patience**: If a user starts a normal conversation (e.g., "hello", "how are you"), respond warmly and chat naturally. **Do NOT suggest inventory tasks or provide [ACTION] tags immediately.** Wait for the user to express a need or hint at a logistics task before transitioning into professional inventory management.
-3. **Inventory Management**: Once tasks are identified, you prioritize actions related to inventory: Adding items, Editing quantities/categories, and Deleting (discarding) items. 
-4. **Action Confirmation**: 
-   - For inventory CRUD (Add/Edit/Delete), provide an [ACTION] tag. The user will confirm via a "Confirm" button or by saying "yes"/"confirm".
-   - Do NOT add a confirm button unnecessarily for navigation or simple inquiries.
-5. **Response Maturity**: Aim for 100-150 words. Be scholarly and precise, but keep the "Smridgey" warmth throughout.
+2. **Structured Output (MANDATORY)**: Use **Markdown formatting** to make your responses readable. 
+   - Use ### for section headers.
+   - Use **bold** for important terms or item names.
+   - Use bullet points (- or *) for lists.
+   - Use emojis to categorize information.
+3. **Conversational Flow**:
+   - If the user is just chatting, be social but brief.
+   - If the user asks about the fridge, provide a structured summary using headers like "### Current Inventory" or "### Sensor Status".
+4. **Action Protocols**: 
+   - Only provide an [ACTION] tag if a specific system change is needed (Add/Edit/Delete/Navigate).
+   - Mention clearly what action you are proposing in the text before the tag.
 
 ## LIVE TELEMETRY:
 Inventory: ${inventoryContext}
@@ -203,19 +198,15 @@ Sensors: ${sensorContext}
 - **EDIT_ITEM**: {"name": string (lookup), "qty": number, "category": string, "expiryDays": number}
 - **DELETE_ITEM**: {"name": string}
 - **OPEN_SCREEN**: {"screen": "Inventory"|"Analytics"|"Settings"|"Profile"|"Notifications"|"Recipes"}
-- **CUSTOMIZE**: {"type": "exterior_color"|"interior_color"|"reset", "value": "#HEX"}
-- **SET_SOUND**: {"category": "fridge_hum"|"door_open"|"notification"|"expiry"|"success", "index": 0-2}
 
 ## EXECUTION FORMAT:
 Always include exactly ONE command tag at the very end of your message IF an action is required:
 '[ACTION:TAG_NAME:{"key": "value"}]' 
 
-Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condiments, Bakery, Frozen, Leftovers, Others.
-`,
+Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condiments, Bakery, Frozen, Leftovers, Others.`,
             }
         ];
 
-        // Add history (limit to last 10 to save tokens and maintain focus)
         if (history && Array.isArray(history)) {
             const limitedHistory = history.slice(-10);
             limitedHistory.forEach(h => {
@@ -223,7 +214,6 @@ Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condime
             });
         }
 
-        // Add current message
         messages.push({ role: "user", content: message });
 
         const completion = await groq.chat.completions.create({
@@ -234,22 +224,17 @@ Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condime
 
         let reply = completion.choices[0].message.content;
 
-            // Regex to find the JSON-like part of ADD_ITEM_AI or ADD_ITEM
-            const addMatch = reply.match(/\[ACTION:(ADD_ITEM_AI|ADD_ITEM):(.*?)\]/);
-            if (addMatch) {
-                try {
-                    const details = JSON.parse(addMatch[2]);
-                    
-                    // Fetch high-quality food image from Unsplash
-                    const imageUrl = await fetchUnsplashImage(`${details.name} fresh food`);
-                    if (imageUrl) details.imageUrl = imageUrl;
-                    
-                    // Re-inject the enriched JSON
-                    reply = reply.replace(addMatch[0], `[ACTION:ADD_ITEM_AI:${JSON.stringify(details)}]`);
-                } catch (e) {
-                    console.error("Error enriching ADD_ITEM_AI action:", e);
-                }
+        const addMatch = reply.match(/\[ACTION:(ADD_ITEM_AI|ADD_ITEM):(.*?)\]/);
+        if (addMatch) {
+            try {
+                const details = JSON.parse(addMatch[2]);
+                const imageUrl = await fetchUnsplashImage(`${details.name} fresh food`);
+                if (imageUrl) details.imageUrl = imageUrl;
+                reply = reply.replace(addMatch[0], `[ACTION:ADD_ITEM_AI:${JSON.stringify(details)}]`);
+            } catch (e) {
+                console.error("Error enriching ADD_ITEM_AI action:", e);
             }
+        }
 
         res.json({ reply });
 
@@ -259,9 +244,9 @@ Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condime
     }
 };
 
-// ─────────────────────────────────────────────
-// 🟢 AUTO-DETECT CATEGORY & EXPIRY  →  POST /api/ai/auto-detect
-// ─────────────────────────────────────────────
+// ---------------------------------------------
+// AUTO-DETECT CATEGORY & EXPIRY -> POST /api/ai/auto-detect
+// ---------------------------------------------
 exports.autoDetectItemDetails = async (req, res) => {
     try {
         const { name } = req.body;
@@ -294,9 +279,9 @@ No markdown, no extra text, just the JSON object.`,
     }
 };
 
-// ─────────────────────────────────────────────
-// 🟢 SMART RECIPE GENERATOR  →  POST /api/ai/recipes
-// ─────────────────────────────────────────────
+// ---------------------------------------------
+// SMART RECIPE GENERATOR -> POST /api/ai/recipes
+// ---------------------------------------------
 exports.generateRecipes = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -329,7 +314,7 @@ exports.generateRecipes = async (req, res) => {
             const jsonOutput = JSON.parse(completion.choices[0].message.content);
             recipes = jsonOutput.recipes || jsonOutput;
         } catch (e) {
-            // Fallback: empty recipes
+            // Fallback
         }
 
         res.json({ recipes });
@@ -340,9 +325,9 @@ exports.generateRecipes = async (req, res) => {
     }
 };
 
-// ─────────────────────────────────────────────
-// 🟢 AI IMAGE SUGGESTION (Cloudinary + Proxy)
-// ─────────────────────────────────────────────
+// ---------------------------------------------
+// AI IMAGE SUGGESTION (Cloudinary + Proxy)
+// ---------------------------------------------
 exports.suggestImage = async (req, res) => {
     try {
         if (!req.file) {
@@ -353,10 +338,9 @@ exports.suggestImage = async (req, res) => {
         if (req.file.isLocal) {
             const host = req.get('host');
             const protocol = req.protocol;
-            cloudUrl = `${protocol}://${host}/${req.file.path.replace(/\\/g, '/')}`;
+            cloudUrl = `${protocol}://${host}/${req.file.path.replace(/\\\\/g, '/')}`;
         }
 
-        // 🔹 VISION ANALYSIS: Identify the food item precisely
         let detectedInfo = { name: req.body.name || "food", category: "Others", expiryDays: 7 };
         
         try {
@@ -369,13 +353,7 @@ exports.suggestImage = async (req, res) => {
                         content: [
                             { 
                                 type: "text", 
-                                text: `Analyze this image with extreme precision for a smart refrigerator inventory system.
-                                1. Identify the EXACT food item (e.g., "Granny Smith Apple" instead of just "Apple").
-                                2. If it's a specific brand or package, note it.
-                                3. Predict the category and fridge shelf life.
-                                Return ONLY a valid JSON object with keys: "name", "category", "expiryDays", "visual_description".
-                                "visual_description": a short 3-5 word description of its visual appearance (color, shape).
-                                Categories MUST be one of: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condiments, Bakery, Frozen, Leftovers, Others.`
+                                text: `Analyze this image with extreme precision for a smart refrigerator inventory system. Return ONLY a valid JSON object with keys: "name", "category", "expiryDays", "visual_description".`
                             },
                             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
                         ]
@@ -388,18 +366,15 @@ exports.suggestImage = async (req, res) => {
             const identified = JSON.parse(visionResponse.choices[0].message.content);
             if (identified && identified.name) {
                 detectedInfo = identified;
-                console.log("✨ AI identified food as:", detectedInfo);
             }
         } catch (visionErr) {
             console.error("Vision Identification Error:", visionErr.message);
         }
 
-        // Fetch high-quality clear food image from Unsplash
-        // 🔹 Context-Aware Search: Use user-provided name if specific, else use AI identified name
         const userName = req.body.name && req.body.name !== "food" ? req.body.name : null;
         const finalProjectedName = userName || detectedInfo.name;
         
-        const searchTerm = `${finalProjectedName} ${detectedInfo.visual_description || ''} fresh photography high-quality product`.trim();
+        const searchTerm = `${finalProjectedName} ${detectedInfo.visual_description || ''} fresh photography`.trim();
         const suggestedUrl = await fetchUnsplashImage(searchTerm);
 
         res.json({

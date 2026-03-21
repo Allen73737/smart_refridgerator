@@ -10,6 +10,8 @@ import 'theme_settings_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import 'advanced_settings_screen.dart';
+import 'about_screen.dart';
+import 'notification_history_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -122,6 +124,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildSettingsTile(Icons.person, "Account Profile", isLight, onTap: widget.onProfileTap ?? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountProfileScreen()))),
                         _buildSettingsTile(Icons.privacy_tip, "Privacy Policy", isLight, onTap: widget.onPrivacyTap ?? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen()))),
                         _buildSettingsTile(Icons.help_outline, "Help & Support", isLight, onTap: widget.onHelpTap ?? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSupportScreen()))),
+                        _buildSettingsTile(Icons.info_outline, "About Smridge", isLight, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()))),
+                        _buildSettingsTile(Icons.history, "Notification History", isLight, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationHistoryScreen()))),
                         
                         const SizedBox(height: 25),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 1),
@@ -156,55 +160,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 "Temperature Threshold",
                                 AppSettings.temperatureThreshold,
                                 AppSettings.adminMinTemperature,
-                                20,
+                                AppSettings.adminMaxTemperature,
                                 (val) => setState(() => AppSettings.temperatureThreshold = AppSettings.clampTemperature(val)),
                                 Icons.thermostat,
                                 isLight,
                               ),
-                              if (AppSettings.adminMinTemperature > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 4),
-                                  child: Text(
-                                    "Admin minimum: ${AppSettings.adminMinTemperature.toStringAsFixed(1)}°",
-                                    style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
-                                  ),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8, top: 4),
+                                child: Text(
+                                  "Restricted range: ${AppSettings.adminMinTemperature.toStringAsFixed(1)}° — ${AppSettings.adminMaxTemperature.toStringAsFixed(1)}°",
+                                  style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
                                 ),
+                              ),
                               const SizedBox(height: 20),
                               buildGlassSlider(
                                 "Humidity Threshold",
                                 AppSettings.humidityThreshold,
                                 AppSettings.adminMinHumidity,
-                                100,
+                                AppSettings.adminMaxHumidity,
                                 (val) => setState(() => AppSettings.humidityThreshold = AppSettings.clampHumidity(val)),
                                 Icons.water_drop,
                                 isLight,
                               ),
-                              if (AppSettings.adminMinHumidity > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 4),
-                                  child: Text(
-                                    "Admin minimum: ${AppSettings.adminMinHumidity.toStringAsFixed(1)}%",
-                                    style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
-                                  ),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8, top: 4),
+                                child: Text(
+                                  "Restricted range: ${AppSettings.adminMinHumidity.toStringAsFixed(1)}% — ${AppSettings.adminMaxHumidity.toStringAsFixed(1)}%",
+                                  style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
                                 ),
+                              ),
                               const SizedBox(height: 20),
                               buildGlassSlider(
                                 "Freshness Threshold",
                                 AppSettings.freshnessThreshold,
                                 AppSettings.adminMinFreshness,
-                                100,
+                                AppSettings.adminMaxFreshness,
                                 (val) => setState(() => AppSettings.freshnessThreshold = AppSettings.clampFreshness(val)),
                                 Icons.eco,
                                 isLight,
                               ),
-                              if (AppSettings.adminMinFreshness > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 4),
-                                  child: Text(
-                                    "Admin minimum: ${AppSettings.adminMinFreshness.toStringAsFixed(1)}",
-                                    style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
-                                  ),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8, top: 4),
+                                child: Text(
+                                  "Restricted range: ${AppSettings.adminMinFreshness.toStringAsFixed(1)} — ${AppSettings.adminMaxFreshness.toStringAsFixed(1)}",
+                                  style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
                                 ),
+                              ),
                               const SizedBox(height: 10),
                             ],
                           ),

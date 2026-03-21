@@ -3,6 +3,7 @@ const NotificationModel = require("../models/Notification");
 const axios = require("axios");
 const { calculateFreshness } = require("../utils/freshnessUtils");
 const socketManager = require("../utils/socketManager");
+const logActivity = require("../utils/activityLogger");
 
 
 // 🟢 Add Item with Image
@@ -13,7 +14,7 @@ exports.addItem = async (req, res) => {
     console.log("Uploaded File Status:", req.file ? `File Received: ${req.file.originalname} (${req.file.mimetype})` : "❌ No File Received");
     if (req.file) console.log("Cloudinary Path:", req.file.path);
 
-    const { name, quantity, expiryDate, category, packaged, weight, barcode, brand, expirySource, notes, imageUrl } = req.body;
+    const { name, quantity, expiryDate, category, packaged, weight, barcode, brand, expirySource, notes, imageUrl, reminderDate } = req.body;
 
     // --- EXPIRY DATE ESTIMATOR ---
     let finalExpiryDate = expiryDate;
@@ -45,7 +46,7 @@ exports.addItem = async (req, res) => {
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + daysToAdd);
       finalExpiryDate = futureDate;
-      finalExpirySource = 'AI Predefined';
+      finalExpirySource = 'estimated';
     }
 
     let finalImageUrl = imageUrl || '';
@@ -73,6 +74,7 @@ exports.addItem = async (req, res) => {
       brand: brand || null,
       expiryDate: finalExpiryDate,
       expirySource: finalExpirySource,
+      reminderDate: reminderDate || null,
       notes: notes || '',
       image: finalImageUrl, 
       freshnessScore: 100
@@ -84,6 +86,8 @@ exports.addItem = async (req, res) => {
 
     console.log("✅ Item saved successfully:", item.name, "| Freshness:", item.freshnessScore);
     
+    await logActivity(req.user.id, 'ADD_ITEM', 'user', `Added item: ${item.name} (${item.category})`);
+
     // 🔹 Emit Socket Event
     socketManager.emitEvent("inventory_update", { action: "add", item });
 
@@ -150,6 +154,8 @@ exports.updateItem = async (req, res) => {
       await updatedItem.save();
       console.log("✅ Item updated successfully:", updatedItem.name);
 
+      await logActivity(req.user.id, 'UPDATE_ITEM', 'user', `Updated item: ${updatedItem.name}`);
+
       // 🔹 Emit Socket Event
       socketManager.emitEvent("inventory_update", { action: "update", item: updatedItem });
     }
@@ -170,6 +176,8 @@ exports.deleteItem = async (req, res) => {
 
     // 🔹 Emit Socket Event
     socketManager.emitEvent("inventory_update", { action: "delete", id: req.params.id });
+
+    await logActivity(req.user.id, 'DELETE_ITEM', 'user', `Deleted item ID: ${req.params.id}`);
 
     res.json({ message: "Item deleted successfully" });
 

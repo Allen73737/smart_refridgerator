@@ -10,6 +10,7 @@ class InventoryItem {
   final String? brand;
   final DateTime expiryDate;
   final String? expirySource;
+  final DateTime? reminderDate; // 👈 New field
   final String? notes;
   final DateTime dateAdded;
   final String? imagePath;
@@ -27,6 +28,7 @@ class InventoryItem {
     this.brand,
     required this.expiryDate,
     this.expirySource,
+    this.reminderDate,
     this.notes,
     required this.dateAdded,
     this.imagePath,
@@ -34,5 +36,7 @@ class InventoryItem {
   });
 
   bool get isExpired => expiryDate.isBefore(DateTime.now());
+  bool get isCritical => !isExpired && daysLeft <= 3;
+  int get units => quantity;
   int get daysLeft => expiryDate.difference(DateTime.now()).inDays;
 }
