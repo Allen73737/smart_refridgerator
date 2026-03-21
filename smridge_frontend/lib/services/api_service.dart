@@ -6,12 +6,12 @@ import '../models/inventory_item.dart';
 
 class ApiService {
   // 🔹 TOGGLE THIS: Set to true for Render production
-  static const bool isProduction = false; 
+  static const bool isProduction = true; 
 
   // 🔹 Update these with your current tunnel URL, Local IP, or Render URL
   static const String publicHost = 'your-tunnel-url-here.loca.lt'; 
   static const String localHost = '192.168.0.101:5001';
-  static const String prodHost = 'your-render-backend-url.onrender.com';
+  static const String prodHost = 'smridge-819t.onrender.com';
 
   static String get host => isProduction ? prodHost : localHost;
 
