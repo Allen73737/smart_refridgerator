@@ -4,7 +4,7 @@ const NotificationModel = require("../models/Notification");
 const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
 const Threshold = require("../models/Threshold");
-const FridgeStatus = require("../../../smridge_web/server/models/FridgeStatus"); // Corrected relative path to sibling project
+const FridgeStatus = require("../models/FridgeStatus");
 
 // Threshold Configurations
 const TEMP_THRESHOLD = 8;
