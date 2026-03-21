@@ -5,18 +5,22 @@ import 'package:http_parser/http_parser.dart';
 import '../models/inventory_item.dart';
 
 class ApiService {
-  // 🔹 TOGGLE THIS: Set to true if using ngrok/localtunnel, false if using local Wi-Fi
-  static const bool usePublicTunnel = false; 
+  // 🔹 TOGGLE THIS: Set to true for Render production
+  static const bool isProduction = false; 
 
-  // 🔹 Update these with your current tunnel URL or Local IP
+  // 🔹 Update these with your current tunnel URL, Local IP, or Render URL
   static const String publicHost = 'your-tunnel-url-here.loca.lt'; 
   static const String localHost = '192.168.0.101:5001';
+  static const String prodHost = 'your-render-backend-url.onrender.com';
 
-  static String get host => usePublicTunnel ? publicHost : localHost;
+  static String get host => isProduction ? prodHost : localHost;
 
-  static String get baseUrl => 'http://$host/api/items'; 
-  static String get authUrl => 'http://$host/api/auth';
-  static String get baseDomain => 'http://$host';
+  // Use https for production, http for local
+  static String get protocol => isProduction ? 'https' : 'http';
+
+  static String get baseUrl => '$protocol://$host/api/items'; 
+  static String get authUrl => '$protocol://$host/api/auth';
+  static String get baseDomain => '$protocol://$host';
 
   static Future<String?> login(String email, String password) async {
     try {
