@@ -12,7 +12,7 @@ class ApiService {
   static const String localIp = '192.168.0.101';
   static const String emulatorIp = '10.0.2.2';
   static const String localPort = '5002';
-  static const String renderUrl = 'smridge-backend.onrender.com';
+  static const String renderUrl = 'smridge-819t.onrender.com';
 
   // 🔹 Use ValueNotifier so other services (like SocketService) can listen for changes
   static final ValueNotifier<String> currentBaseUrl = ValueNotifier<String>('https://$renderUrl'); // Default to HTTPS
