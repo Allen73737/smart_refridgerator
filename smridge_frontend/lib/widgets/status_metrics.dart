@@ -25,6 +25,7 @@ class _StatusMetricsState
   double freshness = 85;
   bool isDoorOpen = false;
   bool _isHovering = false;
+  bool isRealData = false;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _StatusMetricsState
         humidity = (data['humidity'] as num).toDouble();
         freshness = (data['calculatedFreshness'] as num).toDouble();
         isDoorOpen = data['doorStatus'] == 'open';
+        isRealData = data['isReal'] ?? false;
       });
     });
   }
@@ -118,6 +120,40 @@ class _StatusMetricsState
                 ),
                 child: Column(
                   children: [
+                    if (isRealData)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: Colors.greenAccent,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.greenAccent.withOpacity(0.5 * pulseController.value),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              "LIVE ESP32",
+                              style: TextStyle(
+                                color: Colors.greenAccent.withOpacity(0.8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
               buildMetric(
                   "Temperature",

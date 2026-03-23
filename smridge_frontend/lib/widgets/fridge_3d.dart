@@ -43,6 +43,7 @@ class Fridge3DState extends State<Fridge3D>
   bool showInventoryList = false;
   bool _isDoorOpenSensor = false;
   bool _isThresholdDanger = false;
+  bool _isESP32Connected = false;
   int _prevInventoryCount = 0;
   bool _isTwinkling = false;
   double _panX = 0;
@@ -85,6 +86,7 @@ class Fridge3DState extends State<Fridge3D>
       setState(() {
         _isDoorOpenSensor = door;
         _isThresholdDanger = tempDanger || humDanger || freshDanger;
+        _isESP32Connected = data['isReal'] ?? false;
       });
     });
   }
@@ -159,6 +161,35 @@ class Fridge3DState extends State<Fridge3D>
     return Stack(
       clipBehavior: Clip.none,
       children: [
+        if (_isESP32Connected)
+          Positioned(
+            top: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.greenAccent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.bolt, color: Colors.greenAccent, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    "ESP32 ONLINE",
+                    style: TextStyle(
+                      color: Colors.greenAccent,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
         AnimatedBuilder(
           animation: Listenable.merge([cameraController, doorController]),
