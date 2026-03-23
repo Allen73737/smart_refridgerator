@@ -39,4 +39,89 @@ class InventoryItem {
   bool get isCritical => !isExpired && daysLeft <= 3;
   int get units => quantity;
   int get daysLeft => expiryDate.difference(DateTime.now()).inDays;
+
+  factory InventoryItem.fromJson(Map<String, dynamic> json) {
+    return InventoryItem(
+      id: json['_id'],
+      name: json['name'] ?? 'Unknown',
+      category: json['category'],
+      isPackaged: json['packaged'] ?? json['isPackaged'] ?? false,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      weight: (json['weight'] as num?)?.toDouble(),
+      litres: (json['litres'] as num?)?.toDouble(),
+      barcode: json['barcode'],
+      brand: json['brand'],
+      expiryDate: json['expiryDate'] != null
+          ? DateTime.parse(json['expiryDate'])
+          : DateTime.now().add(const Duration(days: 7)),
+      expirySource: json['expirySource'],
+      reminderDate: json['reminderDate'] != null ? DateTime.parse(json['reminderDate']) : null,
+      notes: json['notes'],
+      // Backend uses 'createdAt' (Mongoose auto-field), not 'dateAdded'
+      dateAdded: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : (json['dateAdded'] != null ? DateTime.parse(json['dateAdded']) : DateTime.now()),
+      imagePath: json['imagePath'],
+      // Backend stores image URL in 'image' field, fallback to 'imageUrl'
+      imageUrl: json['imageUrl'] ?? json['image'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'category': category,
+      'isPackaged': isPackaged,
+      'quantity': quantity,
+      'weight': weight,
+      'litres': litres,
+      'barcode': barcode,
+      'brand': brand,
+      'expiryDate': expiryDate.toIso8601String(),
+      'expirySource': expirySource,
+      'reminderDate': reminderDate?.toIso8601String(),
+      'notes': notes,
+      'dateAdded': dateAdded.toIso8601String(),
+      'imagePath': imagePath,
+      'imageUrl': imageUrl,
+    };
+  }
+
+  InventoryItem copyWith({
+    String? id,
+    String? name,
+    String? category,
+    bool? isPackaged,
+    int? quantity,
+    double? weight,
+    double? litres,
+    String? barcode,
+    String? brand,
+    DateTime? expiryDate,
+    String? expirySource,
+    DateTime? reminderDate,
+    String? notes,
+    DateTime? dateAdded,
+    String? imagePath,
+    String? imageUrl,
+  }) {
+    return InventoryItem(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      isPackaged: isPackaged ?? this.isPackaged,
+      quantity: quantity ?? this.quantity,
+      weight: weight ?? this.weight,
+      litres: litres ?? this.litres,
+      barcode: barcode ?? this.barcode,
+      brand: brand ?? this.brand,
+      expiryDate: expiryDate ?? this.expiryDate,
+      expirySource: expirySource ?? this.expirySource,
+      reminderDate: reminderDate ?? this.reminderDate,
+      notes: notes ?? this.notes,
+      dateAdded: dateAdded ?? this.dateAdded,
+      imagePath: imagePath ?? this.imagePath,
+      imageUrl: imageUrl ?? this.imageUrl,
+    );
+  }
 }

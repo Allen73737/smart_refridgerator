@@ -18,10 +18,9 @@ import '../services/audio_service.dart';
 import '../services/api_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/fridge_customization_provider.dart';
-import '../services/calendar_service.dart';
 import '../services/socket_service.dart';
+import '../services/secure_storage_service.dart';
 
 class AddInventoryScreen extends StatefulWidget {
   final Function(InventoryItem) onSave;
@@ -51,8 +50,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   final notesController = TextEditingController();
 
   DateTime? selectedDate;
-  DateTime? selectedReminderDate; // 👈 New field
-  bool syncToCalendar = false; // 👈 New field
+  DateTime? selectedReminderDate; 
   String? imagePath;
   String? imageUrl;
   bool isPackaged = false;
@@ -63,7 +61,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   
   bool _isFetchingAiImage = false;
   String? _aiSuggestedImageUrl;
-  String? _originalLocalImagePath; // 🔹 Persistent storage for the local photo
+  String? _originalLocalImagePath; 
 
   static const List<String> categoryOptions = [
     'Dairy', 'Fruits', 'Vegetables', 'Meat', 'Seafood', 'Beverages',
@@ -81,7 +79,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     'curd', 'buttermilk', 'lassi', 'beer', 'wine',
   };
 
-  // Load cell mocking
   double currentWeight = 0.0;
   Timer? _weightSimulationTimer;
   String _lastAutoCategory = "Others";
@@ -101,13 +98,11 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       categoryController.text = item.category ?? "";
       quantityController.text = item.quantity.toString();
 
-      // Convert grams to kg if weight > 100 (likely grams from OpenFoodFacts)
       double rawWeight = item.weight ?? 0.0;
       if (rawWeight > 100) rawWeight = rawWeight / 1000;
       weightController.text = rawWeight.toStringAsFixed(3);
       currentWeight = rawWeight;
 
-      // Detect liquid and convert ml to litres
       _checkLiquid(item.name, item.category);
       if (item.litres != null && item.litres! > 0) {
         litresController.text = item.litres.toString();
@@ -176,16 +171,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   }
 
   void _onNameChanged() {
-    // Basic local updates to preserve UX speed while typing
     _checkLiquid(nameController.text, categoryController.text);
-    
-    // Cancel previous timer
     if (_aiDebounceTimer?.isActive ?? false) _aiDebounceTimer!.cancel();
-
     final text = nameController.text.trim();
     if (text.isEmpty) return;
-
-    // Start new debounced timer
     _aiDebounceTimer = Timer(const Duration(milliseconds: 1000), () {
       _fetchAiPredictions(text);
     });
@@ -196,19 +185,15 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     setState(() => _isAiDetecting = true);
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await SecureStorageService.getToken();
       if (token != null) {
         final prediction = await ApiService.autoDetectItemDetails(name, token);
         if (prediction != null && mounted) {
           setState(() {
-            // Apply Category if user hasn't heavily modified it
             final aiCategory = prediction['category'];
             if (aiCategory != null && categoryOptions.contains(aiCategory)) {
                categoryController.text = aiCategory;
             }
-
-            // Apply Expiry if user hasn't manually set it
             if (expirySource != "manual" && prediction['expiryDays'] != null) {
                final int days = (prediction['expiryDays'] as num).toInt();
                selectedDate = DateTime.now().add(Duration(days: days));
@@ -219,7 +204,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         }
       }
     } catch (_) {
-      // Silently fail on AI errors to not interrupt UX
     } finally {
       if (mounted) setState(() => _isAiDetecting = false);
     }
@@ -231,10 +215,15 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
   void _onHardwareWeightUpdate(dynamic data) {
     if (!mounted) return;
+    final rawGrams = (data['weight'] as num?)?.toDouble() ?? 0.0;
+    // ESP32 and simulator both send weight in grams → convert to kg
+    final weightKg = rawGrams / 1000.0;
     setState(() {
-      double realWeight = (data['weight'] as num).toDouble();
-      currentWeight = realWeight;
-      weightController.text = currentWeight.toStringAsFixed(3);
+      currentWeight = weightKg;
+      // Only populate the field if there's a meaningful weight on the scale
+      if (rawGrams > 0) {
+        weightController.text = weightKg.toStringAsFixed(3);
+      }
     });
   }
 
@@ -266,25 +255,57 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     }
   }
 
+  Future<void> _refreshAiImage() async {
+    if (_isFetchingAiImage) return;
+    setState(() => _isFetchingAiImage = true);
+
+    try {
+      final token = await SecureStorageService.getToken();
+      if (token == null) {
+        setState(() => _isFetchingAiImage = false);
+        return;
+      }
+      
+      final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
+      
+      final response = await http.post(
+        Uri.parse('${ApiService.baseDomain}/api/ai/suggest-image'),
+        headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name}),
+      );
+      
+      if (response.statusCode == 200) {
+        final suggestedData = jsonDecode(response.body);
+        setState(() {
+          _aiSuggestedImageUrl = suggestedData['suggested_url'];
+          imageUrl = _aiSuggestedImageUrl; 
+          _isFetchingAiImage = false;
+        });
+      } else {
+        setState(() => _isFetchingAiImage = false);
+      }
+    } catch (e) {
+      setState(() => _isFetchingAiImage = false);
+    }
+  }
+
   Future<void> pickImage(ImageSource source) async {
     final XFile? picked = await picker.pickImage(source: source);
     if (picked != null) {
       setState(() {
         imagePath = picked.path;
-        _originalLocalImagePath = picked.path; // 🔹 Store for safe switching
+        _originalLocalImagePath = picked.path; 
         _isFetchingAiImage = true;
         _aiSuggestedImageUrl = null;
       });
 
       try {
-        final prefs = await SharedPreferences.getInstance();
-        final token = prefs.getString('token');
+        final token = await SecureStorageService.getToken();
         if (token == null) {
           setState(() => _isFetchingAiImage = false);
           return;
         }
         
-        // 🔹 Pass the product name to get a high-quality suggestion from Unsplash
         final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
         
         final request = http.MultipartRequest('POST', Uri.parse('${ApiService.baseDomain}/api/ai/suggest-image'));
@@ -300,7 +321,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           if (suggestedData != null && suggestedData['detected_info'] != null) {
             final info = suggestedData['detected_info'];
             setState(() {
-              // 🔹 AI AUTOFILL: Name, Category, and Expiry
               if (nameController.text.isEmpty || nameController.text == "food") {
                 nameController.text = info['name'] ?? "";
               }
@@ -339,7 +359,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     bool readOnly = false,
     Function(String)? onChanged,
     required bool isLight,
-    double hPadding = 12, // 🔹 Further reduced default from 20 to 12
+    double hPadding = 12, 
   }) {
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color iconColor = isLight ? Colors.teal : Colors.tealAccent;
@@ -398,7 +418,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       ),
       body: Stack(
         children: [
-          // Background Gradient + Snow
           Container(
             decoration: BoxDecoration(
               color: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : null),
@@ -411,7 +430,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           ),
           const Positioned.fill(child: WaveBackground()),
 
-          // Main Glass Content Area
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.only(left: 20, right: 20, top: 100, bottom: 20),
@@ -458,10 +476,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 controller: brandController, 
                                 icon: Icons.branding_watermark,
                                 isLight: isLight,
-                                hPadding: 12, // 🔹 Pass reduced padding
+                                hPadding: 12, 
                               ).animate().slideX(begin: -0.1).fade(delay: 50.ms),
                             ),
-                            const SizedBox(width: 6), // 🔹 Further reduced from 10 to 6
+                            const SizedBox(width: 6), 
                             Expanded(
                               child: Container(
                                 decoration: BoxDecoration(
@@ -474,9 +492,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                   decoration: InputDecoration(
                                     labelText: "Category",
                                     labelStyle: TextStyle(color: isLight ? Colors.black54 : Colors.white54),
-                                    prefixIcon: Icon(Icons.category, color: isLight ? Colors.teal : Colors.tealAccent, size: 20), // 🔹 Smaller icon
+                                    prefixIcon: Icon(Icons.category, color: isLight ? Colors.teal : Colors.tealAccent, size: 20), 
                                     border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16), // 🔹 Reduced from 20 to 12
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16), 
                                   ),
                                   dropdownColor: isLight ? Colors.white : const Color(0xFF1E2A33),
                                   style: TextStyle(color: textColor),
@@ -509,7 +527,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 isLight: isLight,
                               ).animate().slideX(begin: -0.1).fade(delay: 100.ms),
                             ),
-                            const SizedBox(width: 8), // 🔹 Reduced from 15 to 8
+                            const SizedBox(width: 8), 
                             Expanded(
                               child: _buildGlassInput(
                                 label: "Weight (kg)", 
@@ -519,7 +537,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 readOnly: false,
                                 isLight: isLight,
                                 onChanged: (val) {
-                                  // Stop simulation if user manually forces a weight
                                   _weightSimulationTimer?.cancel();
                                 },
                               ).animate().slideX(begin: 0.1).fade(delay: 100.ms),
@@ -560,7 +577,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
                         const SizedBox(height: 15),
 
-                        // Expiry Date Glass Button
                         Container(
                           decoration: BoxDecoration(
                             color: isLight ? Colors.grey.shade200 : Colors.tealAccent.withOpacity(0.1),
@@ -580,7 +596,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
                         const SizedBox(height: 15),
 
-                        // Custom Reminder Section
                         Container(
                           decoration: BoxDecoration(
                             color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.05),
@@ -589,27 +604,19 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                           child: Column(
                             children: [
-                              ListTile(
-                                leading: Icon(Icons.alarm_add, color: isLight ? Colors.orange : Colors.orangeAccent),
-                                title: Text("Custom Reminder (Optional)", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
-                                subtitle: Text(
-                                  selectedReminderDate == null ? "None" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedReminderDate!),
-                                  style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                                ListTile(
+                                  leading: Icon(Icons.alarm_add, color: isLight ? Colors.orange : Colors.orangeAccent),
+                                  title: Text("Custom Reminder (Optional)", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                                  subtitle: Text(
+                                    selectedReminderDate == null ? "None" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedReminderDate!),
+                                    style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                                  ),
+                                  trailing: selectedReminderDate != null ? IconButton(
+                                    icon: const Icon(Icons.close, size: 18),
+                                    onPressed: () => setState(() => selectedReminderDate = null),
+                                  ) : null,
+                                  onTap: () => _pickDateTime(isExpiry: false),
                                 ),
-                                trailing: selectedReminderDate != null ? IconButton(
-                                  icon: const Icon(Icons.close, size: 18),
-                                  onPressed: () => setState(() => selectedReminderDate = null),
-                                ) : null,
-                                onTap: () => _pickDateTime(isExpiry: false),
-                              ),
-                              const Divider(height: 1, indent: 60, endIndent: 20, color: Colors.white10),
-                              SwitchListTile(
-                                secondary: Icon(Icons.calendar_today, color: isLight ? Colors.blue : Colors.blueAccent),
-                                title: const Text("Remind via Google Calendar", style: TextStyle(fontSize: 13)),
-                                value: syncToCalendar,
-                                activeColor: Colors.blueAccent,
-                                onChanged: (val) => setState(() => syncToCalendar = val),
-                              ),
                             ],
                           ),
                         ).animate().slideY(begin: 0.1).fade(delay: 220.ms),
@@ -653,7 +660,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                          child: GestureDetector(
                                            onTap: () => setState(() {
                                              imageUrl = null; 
-                                             // Restore local path if we had one
                                              imagePath = _originalLocalImagePath; 
                                            }),
                                            child: Column(
@@ -667,46 +673,65 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                                      border: Border.all(color: imageUrl == null ? Colors.tealAccent : Colors.transparent, width: 2),
                                                    ),
                                                    child: imagePath != null ? Image.file(File(imagePath!), fit: BoxFit.cover) : const Icon(Icons.image),
-                                                 ),
-                                               ),
-                                               const SizedBox(height: 4),
-                                               Text("My Image", style: TextStyle(color: imageUrl == null ? Colors.tealAccent : textColor, fontSize: 10)),
-                                             ],
-                                           ),
-                                         ),
-                                       ),
-                                       const SizedBox(width: 12),
-                                       Expanded(
-                                         child: GestureDetector(
-                                           onTap: () => setState(() {
-                                             imageUrl = _aiSuggestedImageUrl;
-                                             imagePath = null; // 🔹 Clear local path so AI image is used
-                                           }),
-                                           child: Column(
-                                             children: [
-                                               ClipRRect(
-                                                 borderRadius: BorderRadius.circular(12),
-                                                 child: Container(
-                                                   height: 80,
-                                                   width: double.infinity,
-                                                   decoration: BoxDecoration(
-                                                     border: Border.all(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : Colors.transparent, width: 2),
-                                                   ),
-                                                   child: CachedNetworkImage(imageUrl: _aiSuggestedImageUrl!, fit: BoxFit.cover),
-                                                 ),
-                                               ),
-                                               const SizedBox(height: 4),
-                                               Text("AI Image", style: TextStyle(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : textColor, fontSize: 10)),
-                                             ],
-                                           ),
-                                         ),
-                                       ),
-                                     ],
-                                   ),
-                                   const SizedBox(height: 10),
-                                   Text("(Tap on image to select)", style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic)),
-                                 ],
-                               ).animate().fadeIn(),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text("My Image", style: TextStyle(color: imageUrl == null ? Colors.tealAccent : textColor, fontSize: 10)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () => setState(() {
+                                              imageUrl = _aiSuggestedImageUrl;
+                                              imagePath = null; 
+                                            }),
+                                            child: Column(
+                                              children: [
+                                                Stack(
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      child: Container(
+                                                        height: 80,
+                                                        width: double.infinity,
+                                                        decoration: BoxDecoration(
+                                                          border: Border.all(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : Colors.transparent, width: 2),
+                                                        ),
+                                                        child: CachedNetworkImage(imageUrl: _aiSuggestedImageUrl!, fit: BoxFit.cover),
+                                                      ),
+                                                    ),
+                                                    Positioned(
+                                                      right: 4,
+                                                      top: 4,
+                                                      child: GestureDetector(
+                                                        onTap: _refreshAiImage,
+                                                        child: Container(
+                                                          padding: const EdgeInsets.all(4),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.black54,
+                                                            shape: BoxShape.circle,
+                                                          ),
+                                                          child: const Icon(Icons.refresh, color: Colors.white, size: 14),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text("AI Image", style: TextStyle(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : textColor, fontSize: 10)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text("(Tap on image to select)", style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic)),
+                                  ],
+                                ).animate().fadeIn(),
 
                             const SizedBox(height: 15),
 
@@ -806,10 +831,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 dateAdded: widget.existingItem?.dateAdded ?? widget.initialItem?.dateAdded ?? DateTime.now(),
                               );
 
-                              // 🔹 Handle Calendar Sync if toggled
-                              if (syncToCalendar) {
-                                CalendarService.syncItemExpiry(item);
-                              }
 
                               widget.onSave(item);
                               final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
@@ -825,7 +846,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                         ).animate().slideY(begin: 0.2).fade(delay: 400.ms),
 
-                        const SizedBox(height: 100), // Ensures scroll clears dock
+                        const SizedBox(height: 100), 
                       ],
                     ),
                   ),

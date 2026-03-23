@@ -6,6 +6,7 @@ import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/secure_storage_service.dart';
 
 class NotificationHistoryScreen extends StatefulWidget {
   const NotificationHistoryScreen({super.key});
@@ -24,9 +25,10 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
     _fetchHistory();
   }
 
+  String filterType = 'all';
+
   Future<void> _fetchHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     
     if (token != null) {
       final data = await ApiService.getNotificationHistory(token);
@@ -41,19 +43,53 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
     }
   }
 
+  Future<void> _clearHistory() async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Clear History?"),
+        content: const Text("This will permanently delete all notification history."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text("Clear", style: TextStyle(color: Colors.red))
+          ),
+        ],
+      )
+    );
+
+    if (confirmed == true) {
+      setState(() => isLoading = true);
+      final success = await ApiService.clearNotificationHistory(token);
+      if (success) _fetchHistory();
+      else setState(() => isLoading = false);
+    }
+  }
+
   IconData _getIconForType(String type) {
     switch (type) {
       case 'expiry': return Icons.history;
       case 'temperature': return Icons.thermostat;
       case 'humidity': return Icons.water_drop;
-      case 'gas': return Icons.air;
+      case 'spoilage': return Icons.air;
       case 'door': return Icons.door_front_door;
       default: return Icons.notifications_paused;
     }
   }
 
   Color _getColorForType(String type) {
-    return Colors.grey.shade400; // History items are muted
+    switch (type) {
+      case 'expiry': return Colors.orange;
+      case 'temperature': return Colors.red;
+      case 'humidity': return Colors.blue;
+      case 'spoilage': return Colors.purple;
+      case 'door': return Colors.green;
+      default: return Colors.grey.shade400;
+    }
   }
 
   @override
@@ -65,6 +101,10 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
     
     Color textColor = isLight ? Colors.black87 : Colors.white;
 
+    final filteredNotifs = filterType == 'all' 
+      ? notifications 
+      : notifications.where((n) => (n['type'] ?? 'info') == filterType).toList();
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -74,8 +114,24 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
           icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text("Notification History", style: TextStyle(color: textColor, fontWeight: FontWeight.bold))
-            .animate().fadeIn(),
+        title: Text("Notification History", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+        actions: [
+          PopupMenuButton<String>(
+            icon: Icon(Icons.filter_list, color: textColor),
+            onSelected: (val) => setState(() => filterType = val),
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(value: 'all', child: Text("All History")),
+              const PopupMenuItem(value: 'expiry', child: Text("Expiry Only")),
+              const PopupMenuItem(value: 'temperature', child: Text("Temp Alerts")),
+              const PopupMenuItem(value: 'spoilage', child: Text("Spoilage")),
+              const PopupMenuItem(value: 'door', child: Text("Door Alerts")),
+            ],
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_sweep, color: textColor.withOpacity(0.6)),
+            onPressed: notifications.isEmpty ? null : _clearHistory,
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -92,14 +148,14 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
           const Positioned.fill(child: WaveBackground()),
 
           isLoading ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent)) 
-          : notifications.isEmpty ? 
-          Center(child: Text("No history available", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16)))
+          : filteredNotifs.isEmpty ? 
+          Center(child: Text(filterType == 'all' ? "No history available" : "No results for this filter", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16)))
           : SafeArea(
             child: ListView.builder(
               padding: const EdgeInsets.only(top: 80, bottom: 20, left: 16, right: 16),
-              itemCount: notifications.length,
+              itemCount: filteredNotifs.length,
               itemBuilder: (context, index) {
-                final notif = notifications[index];
+                final notif = filteredNotifs[index];
                 final type = notif['type'] ?? 'info';
                 final icon = _getIconForType(type);
                 final color = _getColorForType(type);

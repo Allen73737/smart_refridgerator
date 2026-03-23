@@ -64,6 +64,49 @@ class _LoginScreenState extends State<LoginScreen> {
     SnackbarUtils.showWarning(context, msg);
   }
 
+  void _showServerSettings() {
+    TextEditingController ipController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2A33),
+        title: const Text("Server Settings", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Enter Manual Backend IP (e.g. 192.168.0.101)", style: TextStyle(color: Colors.white70, fontSize: 12)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: ipController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: "192.168.x.x",
+                hintStyle: TextStyle(color: Colors.white38),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await ApiService.setManualIp(ipController.text);
+              if (mounted) {
+                Navigator.pop(context);
+                SnackbarUtils.showSuccess(context, "Backend set to: ${ApiService.baseDomain}");
+              }
+            },
+            child: const Text("Save & Reconnect"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -122,6 +165,20 @@ class _LoginScreenState extends State<LoginScreen> {
                           letterSpacing: 3.0,
                         ),
                       ).animate().slideY(begin: -0.5, duration: 800.ms).fade(),
+                      
+                      const SizedBox(height: 10),
+                      ValueListenableBuilder<String>(
+                        valueListenable: ApiService.currentBaseUrl,
+                        builder: (context, url, _) => Text(
+                          "Backend: ${url.replaceFirst('http://', '').replaceFirst('https://', '')}",
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.tealAccent.withOpacity(0.6),
+                            fontStyle: FontStyle.italic,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ).animate().fadeIn(delay: 900.ms),
                       
                       const SizedBox(height: 10),
                       Text(
@@ -204,11 +261,20 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ).animate().fadeIn(duration: 1.seconds),
 
-          // 🔹 Loader Overlay
           if (isLoading)
             const Positioned.fill(
               child: SmartLoader(message: "Authenticating..."),
             ),
+
+          // 🔹 Server Settings Button
+          Positioned(
+            top: 50,
+            right: 20,
+            child: IconButton(
+              icon: const Icon(Icons.settings_suggest_outlined, color: Colors.white70),
+              onPressed: _showServerSettings,
+            ),
+          ),
         ],
       ),
     );

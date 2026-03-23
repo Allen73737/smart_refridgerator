@@ -8,6 +8,7 @@ import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
 import '../services/audio_service.dart';
 import '../services/api_service.dart';
+import '../services/secure_storage_service.dart';
 import '../widgets/smart_loader.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
@@ -24,8 +25,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   Future<void> _saveAllSettings() async {
     setState(() => _isSaving = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await SecureStorageService.getToken();
       if (token == null) return;
 
       final customizationProvider = Provider.of<FridgeCustomizationProvider>(context, listen: false);

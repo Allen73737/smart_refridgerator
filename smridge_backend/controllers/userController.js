@@ -63,17 +63,18 @@ exports.changePassword = async (req, res) => {
 // 🟢 SAVE FCM TOKEN (FULL IMPLEMENTATION)
 exports.saveFcmToken = async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token, fcmToken } = req.body;
+    const finalToken = token || fcmToken;
 
     // 1️⃣ Check if token exists in request
-    if (!token) {
+    if (!finalToken) {
       return res.status(400).json({ message: "FCM token is required" });
     }
 
     // 2️⃣ Update user with new token
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
-      { fcmToken: token },
+      { fcmToken: finalToken },
       { new: true }
     ).select("-password");
 

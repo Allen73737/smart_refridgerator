@@ -2,27 +2,104 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/inventory_item.dart';
+import '../services/secure_storage_service.dart';
 
 class ApiService {
-  // 🔹 TOGGLE THIS: Set to true for Render production
-  static const bool isProduction = true; 
+  // 🔹 DYNAMIC BACKEND SYSTEM
+  static const String localIp = '192.168.0.101';
+  static const String emulatorIp = '10.0.2.2';
+  static const String localPort = '5002';
+  static const String renderUrl = 'smridge-backend.onrender.com';
 
-  // 🔹 Update these with your current tunnel URL, Local IP, or Render URL
-  static const String publicHost = 'your-tunnel-url-here.loca.lt'; 
-  static const String localHost = '192.168.0.101:5001';
-  static const String prodHost = 'smridge-819t.onrender.com';
+  // 🔹 Use ValueNotifier so other services (like SocketService) can listen for changes
+  static final ValueNotifier<String> currentBaseUrl = ValueNotifier<String>('https://$renderUrl'); // Default to HTTPS
+  
+  static String? _manualIp; // 🔹 Added for manual override
+  static bool get isLocal => currentBaseUrl.value.contains(localIp);
+  static String get baseDomain => currentBaseUrl.value;
+  static String get host => Uri.parse(currentBaseUrl.value).host; // 🔹 Added for legacy support
+  static String get authUrl => '${currentBaseUrl.value}/api/auth';
+  static String get userUrl => '${currentBaseUrl.value}/api/user';
+  static String get baseUrl => '${currentBaseUrl.value}/api/items';
 
-  static String get host => isProduction ? prodHost : localHost;
+  /// 🔹 Initialize and determine the best backend to use
+  static Future<void> initializeBackend() async {
+    print("🌐 Determining best backend...");
 
-  // Use https for production, http for local
-  static String get protocol => isProduction ? 'https' : 'http';
+    // 0. Check for Manual Override
+    final prefs = await SharedPreferences.getInstance();
+    _manualIp = prefs.getString('manual_backend_ip');
+    if (_manualIp != null && _manualIp!.isNotEmpty) {
+      print("🎯 Using Manual Backend Override: $_manualIp");
+      currentBaseUrl.value = _manualIp!.startsWith('http') ? _manualIp! : 'http://$_manualIp:5002';
+      return;
+    }
+    
+    // 1. Try Physical Device IP (Laptop IP)
+    try {
+      final localTestUrl = 'http://$localIp:$localPort/health';
+      print("🔍 Checking Physical Local: $localTestUrl");
+      final response = await http.get(Uri.parse(localTestUrl)).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        print("✅ Local Backend Detected (Physical)! Using: http://$localIp:$localPort");
+        currentBaseUrl.value = 'http://$localIp:$localPort';
+        return;
+      }
+    } catch (e) { print("ℹ️ Local (Physical) unreachable: $e"); }
 
-  static String get baseUrl => '$protocol://$host/api/items'; 
-  static String get authUrl => '$protocol://$host/api/auth';
-  static String get baseDomain => '$protocol://$host';
+    // 2. Try Emulator IP (10.0.2.2)
+    try {
+      final emuTestUrl = 'http://$emulatorIp:$localPort/health';
+      print("🔍 Checking Emulator Local: $emuTestUrl");
+      final response = await http.get(Uri.parse(emuTestUrl)).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        print("✅ Local Backend Detected (Emulator)! Using: http://$emulatorIp:$localPort");
+        currentBaseUrl.value = 'http://$emulatorIp:$localPort';
+        return;
+      }
+    } catch (e) { print("ℹ️ Local (Emulator) unreachable: $e"); }
+
+    // 3. Fallback to Render
+    print("🌍 Falling back to Cloud Backend: https://$renderUrl");
+    currentBaseUrl.value = 'https://$renderUrl';
+  }
+
+  static Future<void> setManualIp(String? ip) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (ip == null || ip.isEmpty) {
+      await prefs.remove('manual_backend_ip');
+    } else {
+      await prefs.setString('manual_backend_ip', ip);
+    }
+    
+    // 🔥 CRITICAL: Clear token so the user is forced to log in to the NEW environment
+    await SecureStorageService.deleteToken();
+    
+    await initializeBackend();
+  }
+
+  static Future<bool> signup(String name, String email, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$authUrl/signup'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name, 'email': email, 'password': password}),
+      );
+      return response.statusCode == 201;
+    } catch (e) {
+      print("Signup Error: $e");
+    }
+    return false;
+  }
 
   static Future<String?> login(String email, String password) async {
+    // 🔥 Always re-detect backend on login. Ensures local is used if now reachable,
+    // even if the app started before the firewall was open.
+    await initializeBackend();
+    print("🎯 [Login] Using backend: ${currentBaseUrl.value}");
     try {
       final response = await http.post(
         Uri.parse('$authUrl/login'),
@@ -43,184 +120,317 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> googleLogin(String idToken) async {
+  static Future<bool> saveFcmToken(String fcmToken, String token) async {
     try {
       final response = await http.post(
-        Uri.parse('$authUrl/google'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'idToken': idToken}),
+        Uri.parse('$userUrl/save-fcm-token'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({'fcmToken': fcmToken}),
       );
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      }
+      return response.statusCode == 200;
     } catch (e) {
-      print("Google Login API Error: $e");
-    }
-    return null;
-  }
-
-  static Future<bool> signup(String name, String email, String password) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$authUrl/signup'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'email': email, 'password': password}),
-      );
-
-      return response.statusCode == 201 || response.statusCode == 200;
-    } catch (e) {
-      print("Error signing up: $e");
+      print("Save FCM Token Error: $e");
     }
     return false;
   }
 
+  static Future<Map<String, dynamic>?> googleLogin(String idToken) async {
+    try {
+      final url = Uri.parse('$authUrl/google');
+      print("📡 [API] Google Login POST: $url");
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'idToken': idToken}),
+      );
+      print("📋 [API] Google Login Response [${response.statusCode}]: ${response.body}");
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) { print("❌ Google Login Error: $e"); }
+    return null;
+  }
+
   static Future<Map<String, dynamic>?> getProfile(String token) async {
     try {
+      final url = Uri.parse('$userUrl/profile');
+      print("📡 [API] Fetching Profile from: $url");
       final response = await http.get(
-        Uri.parse('$baseDomain/api/user/profile'),
+        url,
         headers: {'x-auth-token': token},
-      ).timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      }
-    } catch (e) {
-      print("Error getting profile: $e");
-    }
+      );
+      print("📋 [API] Profile Response [${response.statusCode}]");
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) { print("❌ Profile Fetch Error: $e"); }
     return null;
   }
 
   static Future<bool> updateProfile(String name, String email, String token) async {
     try {
       final response = await http.put(
-        Uri.parse('$baseDomain/api/user/profile'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
-        },
+        Uri.parse('$userUrl/profile'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
         body: jsonEncode({'name': name, 'email': email}),
       );
       return response.statusCode == 200;
     } catch (e) {
-      print("Warning: Profile Update failed - $e");
-      return false;
+      print("Update Profile Error: $e");
     }
-  }
-
-  static Future<bool> saveFcmToken(String fcmToken, String authToken) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseDomain/api/user/save-fcm-token'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': authToken
-        },
-        body: jsonEncode({'token': fcmToken}),
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      print("Error saving FCM Token: $e");
-      return false;
-    }
+    return false;
   }
 
   static Future<bool> uploadProfileImage(File image, String token) async {
     try {
-      var request = http.MultipartRequest('PUT', Uri.parse('$baseDomain/api/user/profile-image'));
+      var request = http.MultipartRequest('PUT', Uri.parse('$userUrl/profile-image'));
       request.headers['x-auth-token'] = token;
-      
-      request.files.add(
-        await http.MultipartFile.fromPath('image', image.path)
-      );
-
-      final response = await request.send();
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        image.path,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+      var response = await request.send();
       return response.statusCode == 200;
     } catch (e) {
-      print("Error uploading profile image: $e");
-      return false;
+      print("Profile Image Upload Error: $e");
     }
+    return false;
   }
 
-  static Future<Map<String, dynamic>?> getAnalytics(String token) async {
+  static Future<Map<String, dynamic>?> scanBarcode(String barcode) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseDomain/api/analytics/temperature'),
-        headers: {'x-auth-token': token},
-      ).timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        return {'temperature': jsonDecode(response.body)};
-      }
-    } catch (e) {
-      print("Error getting analytics: $e");
-    }
-    return null;
-  }
-
-  static Future<void> pushSensorData(int temp, int humidity, int freshness) async {
-    try {
-      final gasLevel = (100 - freshness) * 10;
-      await http.post(
-        Uri.parse('$baseDomain/api/sensors/data'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'temperature': temp,
-          'humidity': humidity,
-          'gasLevel': gasLevel,
-          'weight': 0.0,
-          'doorStatus': 'closed'
-        }),
+        Uri.parse('$baseUrl/barcode/$barcode'),
       );
-    } catch (_) {}
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) { print("Barcode Scan Error: $e"); }
+    return null;
   }
 
   static Future<List<InventoryItem>> getInventory(String token) async {
     try {
+      print("📡 [API] Fetching Inventory from: $baseUrl");
       final response = await http.get(
         Uri.parse(baseUrl),
         headers: {'x-auth-token': token},
-      ).timeout(const Duration(seconds: 10));
-
+      );
+      print("📋 Inventory Response [${response.statusCode}]: ${response.body}");
       if (response.statusCode == 200) {
-        final List<dynamic> jsonList = jsonDecode(response.body);
-        return jsonList.map((json) {
-           return InventoryItem(
-              id: json['_id'],
-              name: json['name'] ?? 'Unknown',
-              category: json['category'],
-              isPackaged: json['packaged'] ?? true,
-              quantity: json['quantity'] ?? 1,
-              weight: (json['weight'] as num?)?.toDouble(),
-              barcode: json['barcode'],
-              brand: json['brand'],
-              expiryDate: json['expiryDate'] != null ? DateTime.parse(json['expiryDate']) : DateTime.now(),
-              expirySource: json['expirySource'],
-              reminderDate: json['reminderDate'] != null ? DateTime.parse(json['reminderDate']) : null,
-              notes: json['notes'],
-              dateAdded: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
-              // Assuming backend uses base domain for local images
-              imageUrl: json['image'] != null && json['image'].isNotEmpty 
-                  ? (json['image'].startsWith('http') ? json['image'] : '$baseDomain/uploads/${json['image']}')
-                  : null,
-           );
-        }).toList();
+        List data = jsonDecode(response.body);
+        return data.map((item) => InventoryItem.fromJson(item)).toList();
+      } else {
+        print("⚠️ Inventory Fetch Failed with status: ${response.statusCode}");
       }
+    } catch (e) { print("❌ Inventory Fetch Error: $e"); }
+    return [];
+  }
+
+  static Future<bool> addFood(InventoryItem item, String token) async {
+    try {
+      print("📡 Adding Food to: $baseUrl");
+      
+      // 🔹 Using MultipartRequest to support images and match backend requirements
+      var request = http.MultipartRequest('POST', Uri.parse(baseUrl));
+      request.headers['x-auth-token'] = token;
+      
+      // Add all fields from item
+      final json = item.toJson();
+      json.forEach((key, value) {
+        if (value != null) request.fields[key] = value.toString();
+      });
+
+      // Add image if exists
+      if (item.imagePath != null && File(item.imagePath!).existsSync()) {
+        request.files.add(await http.MultipartFile.fromPath('image', item.imagePath!));
+      }
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      
+      print("📥 Add Food Response [${response.statusCode}]: ${response.body}");
+      if (response.statusCode == 201) return true;
+      print("⚠️ Add Food Failed with status: ${response.statusCode}");
     } catch (e) {
-      print("Error getting inventory: $e");
+      print("❌ [API] Add Food Error: $e");
+    }
+    return false;
+  }
+
+  static Future<bool> uploadItemImage(String itemId, File image, String token) async {
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/$itemId/image'));
+      request.headers['x-auth-token'] = token;
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        image.path,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+      var response = await request.send();
+      return response.statusCode == 200;
+    } catch (e) { print("Image Upload Error: $e"); }
+    return false;
+  }
+
+  static Future<bool> updateFood(InventoryItem item, String token) async {
+    try {
+      final url = Uri.parse('$baseUrl/${item.id}');
+      print("📡 [API] Updating Food: $url");
+      final body = jsonEncode(item.toJson());
+      
+      final response = await http.put(
+        url,
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: body,
+      );
+      
+      print("📥 Update Food Response [${response.statusCode}]: ${response.body}");
+      return response.statusCode == 200;
+    } catch (e) { 
+      print("❌ [API] Update Food Error: $e"); 
+    }
+    return false;
+  }
+
+  static Future<bool> deleteFood(String id, String token) async {
+    try {
+      final url = Uri.parse('$baseUrl/$id');
+      print("📡 [API] Deleting Item: $url");
+      final response = await http.delete(
+        url,
+        headers: {'x-auth-token': token},
+      );
+      print("📋 [API] Delete Item Response [${response.statusCode}]");
+      return response.statusCode == 200;
+    } catch (e) { print("❌ Delete Food Error: $e"); }
+    return false;
+  }
+
+  static Future<List<dynamic>> getActivities(String token, {String period = 'all'}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseDomain/api/activities?period=$period'),
+        headers: {'x-auth-token': token},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("Error fetching activities: $e");
     }
     return [];
   }
 
-  static Future<bool> deleteFood(String id, String token) async {
-     try {
-       final response = await http.delete(
-         Uri.parse('$baseUrl/$id'),
-         headers: {'x-auth-token': token},
-       );
-       return response.statusCode == 200;
-     } catch(e) {
-       print("Error deleting item: $e");
-     }
-     return false;
+  static Future<List<dynamic>> getActivityStats(String token, {String period = 'all'}) async {
+    try {
+      final url = '$baseDomain/api/activities/stats?period=$period';
+      print("📡 Fetching Activity Stats from: $url");
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'x-auth-token': token},
+      );
+      print("📊 Activity Stats Response [${response.statusCode}]: ${response.body}");
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data.containsKey('stats')) return data['stats'];
+        return data;
+      }
+    } catch (e) {
+      print("❌ Error fetching activity stats: $e");
+    }
+    return [];
+  }
+
+  static Future<Map<String, dynamic>?> autoDetectItemDetails(String name, String token) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseDomain/api/ai/auto-detect'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({'name': name}),
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("Auto Detect Error: $e");
+    }
+    return null;
+  }
+
+  static Future<String?> uploadAudio(String filePath, String token) async {
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$baseDomain/api/ai/upload-audio'));
+      request.headers['x-auth-token'] = token;
+      request.files.add(await http.MultipartFile.fromPath('audio', filePath));
+      var response = await request.send();
+      if (response.statusCode == 200) {
+        final data = await http.Response.fromStream(response);
+        return jsonDecode(data.body)['url'];
+      }
+    } catch (e) {
+      print("Audio Upload Error: $e");
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getUserSettings(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseDomain/api/settings'),
+        headers: {'x-auth-token': token},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("Get Settings Error: $e");
+    }
+    return null;
+  }
+
+  static Future<bool> saveUserSettings(String token, Map<String, dynamic> settings) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseDomain/api/settings'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode(settings),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Save Settings Error: $e");
+    }
+    return false;
+  }
+
+  static Future<String?> askChatAssistant(String text, String token, {required List history}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseDomain/api/ai/chat'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({'message': text, 'history': history}),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['reply'];
+      }
+    } catch (e) {
+      print("Chat Assistant Error: $e");
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> analyzeFoodItem({required String name, required String token, required String expiryDate}) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseDomain/api/ai/analyze'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({'name': name, 'expiryDate': expiryDate}),
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("Food Analysis Error: $e");
+    }
+    return null;
+  }
+
+  static Future<void> logActivity(String action, String details, String token) async {
+    try {
+      await http.post(
+        Uri.parse('$baseDomain/api/activities/log'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({'action': action, 'details': details}),
+      );
+    } catch (e) { print("Log Activity Error: $e"); }
   }
 
   static Future<List<Map<String, dynamic>>> getNotifications(String token) async {
@@ -228,12 +438,12 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseDomain/api/notifications'),
         headers: {'x-auth-token': token},
-      ).timeout(const Duration(seconds: 8));
+      );
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.cast<Map<String, dynamic>>();
+        List data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(data);
       }
-    } catch(e) {
+    } catch (e) {
       print("Error fetching notifications: $e");
     }
     return [];
@@ -246,191 +456,10 @@ class ApiService {
         headers: {'x-auth-token': token},
       );
       return response.statusCode == 200;
-    } catch(e) {
+    } catch (e) {
       print("Error marking notification as read: $e");
     }
     return false;
-  }
-
-  static Future<Map<String, dynamic>?> scanBarcode(String barcode) async {
-    try {
-      final response = await http.get(
-        Uri.parse('https://world.openfoodfacts.org/api/v0/product/$barcode.json'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['status'] == 1 && data['product'] != null) {
-          final product = data['product'];
-          
-          // Helper to safely extract items
-          final productName = product['product_name'] ?? '';
-          final brand = product['brands'] ?? '';
-          final categoryStr = product['categories'] ?? '';
-          final category = categoryStr.isNotEmpty ? categoryStr.split(',')[0].trim() : 'Unknown';
-          final quantityStr = product['quantity']?.toString() ?? '';
-          final imageUrl = product['image_url'] ?? '';
-
-          // Estimate expiry logic
-          int expiryDays = 7;
-          final catLower = category.toLowerCase();
-          if (catLower.contains('milk')) expiryDays = 5;
-          else if (catLower.contains('yogurt') || catLower.contains('yoghurt')) expiryDays = 7;
-          else if (catLower.contains('cheese')) expiryDays = 14;
-          else if (catLower.contains('bread')) expiryDays = 4;
-          else if (catLower.contains('sauce')) expiryDays = 30;
-          else if (catLower.contains('chocolate')) expiryDays = 180;
-
-          return {
-            'name': productName,
-            'brand': brand,
-            'category': category,
-            'weight': quantityStr.isNotEmpty ? double.tryParse(quantityStr) : null,
-            'imageUrl': imageUrl,
-            'expiryDate': DateTime.now().add(Duration(days: expiryDays)).toIso8601String(),
-            'expirySource': 'estimated',
-          };
-        }
-      }
-      return null;
-    } catch (e) {
-      print("Error scanning barcode directly: $e");
-      return null;
-    }
-  }
-
-  static Future<bool> addFood(InventoryItem item, String token) async {
-    try {
-      var request = http.MultipartRequest('POST', Uri.parse(baseUrl));
-      request.headers['x-auth-token'] = token;
-
-      request.fields['name'] = item.name;
-      if (item.category != null) request.fields['category'] = item.category!;
-      request.fields['packaged'] = item.isPackaged.toString();
-      request.fields['quantity'] = item.quantity.toString();
-      if (item.weight != null) request.fields['weight'] = item.weight.toString();
-      if (item.barcode != null) request.fields['barcode'] = item.barcode!;
-      if (item.brand != null) request.fields['brand'] = item.brand!;
-      request.fields['expiryDate'] = item.expiryDate.toIso8601String();
-      if (item.expirySource != null) request.fields['expirySource'] = item.expirySource!;
-      if (item.reminderDate != null) request.fields['reminderDate'] = item.reminderDate!.toIso8601String();
-      if (item.notes != null) request.fields['notes'] = item.notes!;
-      if (item.imageUrl != null) request.fields['imageUrl'] = item.imageUrl!;
-
-      if (item.imagePath != null && item.imagePath!.isNotEmpty) {
-        request.files.add(await http.MultipartFile.fromPath(
-          'image',
-          item.imagePath!,
-        ));
-      }
-
-      var response = await request.send();
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        return true;
-      } else {
-        final respBody = await response.stream.bytesToString();
-        print("Backend Error adding food [${response.statusCode}]: $respBody");
-        return false;
-      }
-    } catch (e) {
-      print("Error adding food: $e");
-      return false;
-    }
-  }
-
-  static Future<bool> updateFood(InventoryItem item, String token) async {
-    try {
-      if (item.id == null) return false;
-      var request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/${item.id}'));
-      request.headers['x-auth-token'] = token;
-
-      request.fields['name'] = item.name;
-      if (item.category != null) request.fields['category'] = item.category!;
-      request.fields['packaged'] = item.isPackaged.toString();
-      request.fields['quantity'] = item.quantity.toString();
-      if (item.weight != null) request.fields['weight'] = item.weight.toString();
-      if (item.barcode != null) request.fields['barcode'] = item.barcode!;
-      if (item.brand != null) request.fields['brand'] = item.brand!;
-      request.fields['expiryDate'] = item.expiryDate.toIso8601String();
-      if (item.expirySource != null) request.fields['expirySource'] = item.expirySource!;
-      if (item.reminderDate != null) request.fields['reminderDate'] = item.reminderDate!.toIso8601String();
-      if (item.notes != null) request.fields['notes'] = item.notes!;
-      if (item.imageUrl != null) request.fields['imageUrl'] = item.imageUrl!;
-
-      if (item.imagePath != null && item.imagePath!.isNotEmpty) {
-        // Only upload if it's a local file path
-        if (!item.imagePath!.startsWith('http')) {
-          request.files.add(await http.MultipartFile.fromPath(
-            'image',
-            item.imagePath!,
-          ));
-        }
-      }
-
-      var response = await request.send();
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        final respBody = await response.stream.bytesToString();
-        print("Backend Error updating food [${response.statusCode}]: $respBody");
-        return false;
-      }
-    } catch (e) {
-      print("Error updating food: $e");
-      return false;
-    }
-  }
-
-  // --- AI INTEGRATION ENDPOINTS ---
-
-  static Future<Map<String, dynamic>?> autoDetectItemDetails(String name, String token) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseDomain/api/ai/auto-detect'),
-        headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name}),
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      }
-    } catch (e) {
-      print("Error auto-detecting item details: $e");
-    }
-    return null;
-  }
-
-  static Future<Map<String, dynamic>?> getSuggestedImage(String imagePath, String token) async {
-    try {
-      var request = http.MultipartRequest('POST', Uri.parse('http://$host/api/ai/suggest-image'));
-      request.headers['x-auth-token'] = token;
-      request.files.add(await http.MultipartFile.fromPath('image', imagePath));
-      
-      var response = await request.send();
-      if (response.statusCode == 200) {
-        final responseData = await response.stream.bytesToString();
-        return jsonDecode(responseData);
-      }
-    } catch (e) {
-      print("Error getting AI image suggestion: $e");
-    }
-    return null;
-  }
-
-  static Future<String?> fetchAiOverview(String name, String category, String brand, String token) async {
-    try {
-      final response = await http.post(
-        Uri.parse('http://$host/api/ai/overview'),
-        headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'category': category, 'brand': brand}),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['overview'];
-      }
-    } catch (e) {
-      print("Error fetching AI overview: $e");
-    }
-    return null;
   }
 
   static Future<bool> clearNotifications(String token) async {
@@ -442,8 +471,8 @@ class ApiService {
       return response.statusCode == 200;
     } catch (e) {
       print("Error clearing notifications: $e");
-      return false;
     }
+    return false;
   }
 
   static Future<List<Map<String, dynamic>>> getNotificationHistory(String token) async {
@@ -453,7 +482,8 @@ class ApiService {
         headers: {'x-auth-token': token},
       );
       if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+        List data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(data);
       }
     } catch (e) {
       print("Error fetching notification history: $e");
@@ -461,123 +491,16 @@ class ApiService {
     return [];
   }
 
-  static Future<List<dynamic>?> generateRecipes(String token) async {
+  static Future<bool> clearNotificationHistory(String token) async {
     try {
-      final response = await http.post(
-        Uri.parse('http://$host/api/ai/recipes'),
+      final response = await http.delete(
+        Uri.parse('$baseDomain/api/notifications/history'),
         headers: {'x-auth-token': token},
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['recipes'];
-      }
-    } catch (e) {
-      print("Error generating recipes: $e");
-    }
-    return null;
-  }
-
-  static Future<String?> askChatAssistant(String message, String token, {List<Map<String, String>> history = const []}) async {
-    try {
-      final response = await http.post(
-        Uri.parse('http://$host/api/ai/chat'),
-        headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'message': message,
-          'history': history,
-        }),
-      ).timeout(const Duration(seconds: 60));
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['reply'];
-      } else {
-        print("Backend returned status code: ${response.statusCode} - ${response.body}");
-        return "Backend Error ${response.statusCode}: ${response.body}";
-      }
-    } catch (e) {
-      print("Error asking AI chat: $e");
-      return "Network Exception: $e";
-    }
-  }
-
-  static Future<Map<String, dynamic>?> analyzeFoodItem({
-    required String name,
-    required String token,
-    String? expiryDate,
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('http://$host/api/ai/analyze'),
-        headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'expiryDate': expiryDate}),
-      ).timeout(const Duration(seconds: 60));
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        print("Groq Analyze Error ${response.statusCode}: ${response.body}");
-        return null;
-      }
-    } catch (e) {
-      print("Error analyzing food item: $e");
-      return null;
-    }
-  }
-
-  static Future<Map<String, dynamic>?> getUserSettings(String token) async {
-    try {
-      final response = await http.get(
-        Uri.parse('http://$host/api/settings/user-settings'),
-        headers: {
-          'x-auth-token': token,
-          'Content-Type': 'application/json',
-        },
-      );
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      }
-    } catch (e) {
-      print("Error fetching user settings: $e");
-    }
-    return null;
-  }
-
-  static Future<bool> saveUserSettings(String token, Map<String, dynamic> settings) async {
-    try {
-      final response = await http.post(
-        Uri.parse('http://$host/api/settings/user-settings'),
-        headers: {
-          'x-auth-token': token,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(settings),
       );
       return response.statusCode == 200;
     } catch (e) {
-      print("Error saving user settings: $e");
-      return false;
+      print("Error clearing notification history: $e");
     }
-  }
-
-  static Future<String?> uploadAudio(String filePath, String token) async {
-    try {
-      var request = http.MultipartRequest('POST', Uri.parse('http://$host/api/settings/upload-audio'));
-      request.headers['x-auth-token'] = token;
-      request.files.add(await http.MultipartFile.fromPath('audio', filePath));
-
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['url'];
-      } else {
-        print("Audio upload failed [${response.statusCode}]: ${response.body}");
-      }
-    } catch (e) {
-      print("Error uploading audio: $e");
-    }
-    return null;
+    return false;
   }
 }

@@ -17,6 +17,26 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+
+    project.plugins.whenPluginAdded {
+        if (this.javaClass.name.contains("com.android.build.gradle.LibraryPlugin") || 
+            this.javaClass.name.contains("com.android.build.gradle.AppPlugin")) {
+            
+            val android = project.extensions.findByName("android")
+            if (android != null) {
+                try {
+                    val getNamespace = android.javaClass.methods.find { it.name == "getNamespace" }
+                    val currentNamespace = getNamespace?.invoke(android)
+                    if (currentNamespace == null) {
+                        val setNamespace = android.javaClass.methods.find { it.name == "setNamespace" && it.parameterCount == 1 }
+                        setNamespace?.invoke(android, "com.smridge.plugins.${project.name.replace("-", "_")}")
+                        println("Injected namespace for ${project.name}")
+                    }
+                } catch (e: Exception) {
+                }
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

@@ -8,8 +8,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/inventory_item.dart';
 import '../services/api_service.dart';
 import '../providers/theme_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../services/calendar_service.dart';
+import '../services/secure_storage_service.dart';
+import '../services/notification_service.dart';
+import '../utils/snackbar_utils.dart';
 import 'package:intl/intl.dart';
 
 class ProductDetailsOverlay extends StatefulWidget {
@@ -35,8 +36,11 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
   int _currentPage = 0;
   bool _isFullScreen = false; 
   bool _isImageViewerOpen = false; // 🔹 Image viewer state
+  bool _isImageZoomed = false;    // 🔹 Zoom toggle
   String? _expandedImageUrl;
   String? _expandedImagePath;
+
+  late InventoryItem _item; // 🔹 Local state to reflect updates
 
   // AI States
   bool _isLoadingOverview = false;
@@ -51,6 +55,7 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
   @override
   void initState() {
     super.initState();
+    _item = widget.item; // 🔹 Initialize local state
     // 🔹 Prefetch analysis immediately for "Instant intelligence" experience
     _runGroqAnalysis();
   }
@@ -81,15 +86,96 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
   Future<void> _runGroqAnalysis() async {
     if (_groqAnalysis != null) return;
     setState(() => _isLoadingAnalysis = true);
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     if (token == null) { setState(() => _isLoadingAnalysis = false); return; }
     final result = await ApiService.analyzeFoodItem(
-      name: widget.item.name,
+      name: _item.name,
       token: token,
-      expiryDate: widget.item.expiryDate.toIso8601String(),
+      expiryDate: _item.expiryDate.toIso8601String(),
     );
     if (mounted) setState(() { _groqAnalysis = result; _isLoadingAnalysis = false; });
+  }
+
+  // 🔔 Local Reminder Picker
+  Future<void> _pickReminder(bool isLight) async {
+    final DateTime initial = widget.item.reminderDate ?? DateTime.now().add(const Duration(minutes: 30));
+    
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now(),
+      lastDate: widget.item.expiryDate,
+      helpText: "Set Reminder Date",
+    );
+
+    if (pickedDate != null && mounted) {
+      final pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(initial),
+        helpText: "Set Reminder Time",
+      );
+
+      if (pickedTime != null && mounted) {
+        final fullDateTime = DateTime(
+          pickedDate.year,
+          pickedDate.month,
+          pickedDate.day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+
+        if (fullDateTime.isBefore(DateTime.now())) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Reminder must be in the future!")));
+          return;
+        }
+
+        setState(() => _isLoadingAnalysis = true); // Using as a general loader
+        
+        try {
+          final token = await SecureStorageService.getToken();
+          if (token != null) {
+            // 🔹 Update backend
+            if (_item.id == null) {
+              if (mounted) SnackbarUtils.showError(context, "Error: Item ID is missing.");
+              return;
+            }
+
+            final updatedItem = _item.copyWith(reminderDate: fullDateTime);
+            final success = await ApiService.updateFood(updatedItem, token);
+
+            if (success && mounted) {
+              try {
+                await NotificationService().scheduleLocalReminder(
+                  _item.id.hashCode,
+                  _item.name,
+                  fullDateTime,
+                );
+              } catch (e) { print("Notif Error: $e"); }
+              
+              setState(() {
+                _item = updatedItem;
+                _isLoadingAnalysis = false;
+              });
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: isLight ? Colors.teal : Colors.tealAccent,
+                  content: Text("Reminder set for ${DateFormat('MMM dd, HH:mm').format(fullDateTime)} 🔔", 
+                    style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)
+                  ),
+                ),
+              );
+            } else if (mounted) {
+              SnackbarUtils.showError(context, "Failed to save reminder to server.");
+            }
+          }
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        } finally {
+          if (mounted) setState(() => _isLoadingAnalysis = false);
+        }
+      }
+    }
   }
 
   Color _freshnessColor(int score) {
@@ -217,13 +303,33 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                     child: ExpansionTile(
                       shape: const RoundedRectangleBorder(side: BorderSide.none),
                       collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
-                      title: Text(
-                        r['title'] ?? "Recipe ${index + 1}",
-                        style: TextStyle(
-                          color: isLight ? Colors.teal.shade700 : Colors.tealAccent,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      title: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            r['title'] ?? (r['name'] ?? "Recipe ${index + 1}"),
+                            style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          if (r['type'] != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                r['type'].toString().toUpperCase(),
+                                style: TextStyle(
+                                  color: Colors.tealAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                        ],
                       ),
                       iconColor: isLight ? Colors.teal : Colors.tealAccent,
                       collapsedIconColor: isLight ? Colors.teal : Colors.tealAccent,
@@ -240,14 +346,14 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                         )),
                         const SizedBox(height: 12),
                         Text("Instructions:", style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 12, fontWeight: FontWeight.bold)),
-                        ...(r['steps'] as List<dynamic>? ?? []).asMap().entries.map((entry) => 
+                        ...(r['steps'] as List<dynamic>? ?? []).map((s) => s.toString().trim().replaceFirst(RegExp(r'^\d+[\.\:\s]+'), '')).where((s) => s.length > 3).toList().asMap().entries.map((entry) => 
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text("${entry.key + 1}. ", style: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent, fontSize: 13, fontWeight: FontWeight.bold)),
-                                Expanded(child: Text("${entry.value}", style: TextStyle(color: textColor, fontSize: 13, height: 1.4))),
+                                Expanded(child: Text(entry.value, style: TextStyle(color: textColor, fontSize: 13, height: 1.4))),
                               ],
                             ),
                           )
@@ -308,6 +414,25 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
               ),
             ),
             const SizedBox(height: 24),
+            // 🔹 Sensor Telemetry Dashboard
+            if (a['sensors'] != null)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isLight ? Colors.black.withOpacity(0.03) : Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.1)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildMiniSensorItem(Icons.gas_meter, "Gas", "${a['sensors']['gas']} ppm", Colors.orangeAccent),
+                    _buildMiniSensorItem(Icons.thermostat, "Temp", "${a['sensors']['temp']}°C", Colors.redAccent),
+                    _buildMiniSensorItem(Icons.water_drop, "Hum", "${a['sensors']['humidity']}%", Colors.blueAccent),
+                  ],
+                ),
+              ),
             // Unsplash Reference
             if (a['image_url'] != null)
               GestureDetector(
@@ -324,16 +449,47 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                 ),
               ),
             const SizedBox(height: 16),
-            _sectionHeader(Icons.psychology, "AI Logic", isLight ? Colors.teal : Colors.tealAccent),
+            _sectionHeader(Icons.psychology, "AI Analysis Logic", isLight ? Colors.teal : Colors.tealAccent),
             const SizedBox(height: 8),
-            Text(a['freshness_explanation']?.toString() ?? "", style: TextStyle(color: textColor.withOpacity(0.7), fontSize: 13, height: 1.4)),
-            const SizedBox(height: 16),
-            _sectionHeader(Icons.tips_and_updates, "Storage Guru", isLight ? Colors.teal : Colors.tealAccent),
+            Text(a['freshness_explanation']?.toString() ?? "Generating detailed insights...", style: TextStyle(color: textColor, fontSize: 13, height: 1.5)),
+            const SizedBox(height: 20),
+            _sectionHeader(Icons.timer_outlined, "Estimated Remainder", isLight ? Colors.teal : Colors.tealAccent),
             const SizedBox(height: 8),
-            Text(a['storage_advice']?.toString() ?? "", style: TextStyle(color: textColor.withOpacity(0.7), fontSize: 13, height: 1.4)),
+            Text("Remaining: ${a['estimated_remaining_days'] ?? 'N/A'} days", style: TextStyle(color: textColor.withOpacity(0.9), fontSize: 13, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            _sectionHeader(Icons.tips_and_updates, "Storage Guru Tips", isLight ? Colors.teal : Colors.tealAccent),
+            const SizedBox(height: 8),
+            Text(a['storage_advice']?.toString() ?? "Calculating optimal storage...", style: TextStyle(color: textColor, fontSize: 13, height: 1.5)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: isLight ? Colors.teal : Colors.tealAccent),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text("Based on live sensor telemetry and deep learning analysis.", style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11))),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMiniSensorItem(IconData icon, String label, String value, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      ],
     );
   }
 
@@ -435,8 +591,8 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                                     GestureDetector(
                                       onTap: () {
                                         setState(() {
-                                          _expandedImageUrl = widget.item.imageUrl;
-                                          _expandedImagePath = widget.item.imagePath;
+                                          _expandedImageUrl = _item.imageUrl;
+                                          _expandedImagePath = _item.imagePath;
                                           _isImageViewerOpen = true;
                                         });
                                       },
@@ -445,22 +601,37 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                                         height: _isFullScreen ? 260 : 200,
                                         width: double.infinity,
                                         decoration: BoxDecoration(
-                                          image: _buildItemDecorationImage(),
+                                          image: _buildItemDecorationImage(_isImageZoomed ? BoxFit.contain : BoxFit.cover),
                                         ),
                                         child: _buildItemImageFallback() ?? const SizedBox.shrink(),
                                       ),
                                     ),
-                                    Container(
-                                      height: _isFullScreen ? 260 : 200,
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [Colors.black.withOpacity(0.4), Colors.transparent, Colors.black.withOpacity(0.8)],
+                                    // 🔹 Visual Indicator for Full Image
+                                    Positioned(
+                                      bottom: 10,
+                                      right: 10,
+                                      child: GestureDetector(
+                                        onTap: () => setState(() => _isImageZoomed = !_isImageZoomed),
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(8)),
+                                          child: Icon(_isImageZoomed ? Icons.aspect_ratio : Icons.zoom_out_map, color: Colors.white, size: 16),
                                         ),
                                       ),
                                     ),
-                                    if (widget.item.expiryDate.isBefore(DateTime.now()))
+                                    IgnorePointer(
+                                      child: Container(
+                                        height: _isFullScreen ? 260 : 200,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [Colors.black.withOpacity(0.4), Colors.transparent, Colors.black.withOpacity(0.8)],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_item.expiryDate.isBefore(DateTime.now()))
                                       Positioned(
                                         top: 30,
                                         right: -30,
@@ -502,10 +673,10 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(widget.item.category?.toUpperCase() ?? "GENERAL", 
+                                          Text(_item.category?.toUpperCase() ?? "GENERAL", 
                                             style: TextStyle(color: Colors.tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5),
                                           ),
-                                          Text(widget.item.name, 
+                                          Text(_item.name, 
                                             style: TextStyle(color: Colors.white, fontSize: _isFullScreen ? 34 : 28, fontWeight: FontWeight.bold, letterSpacing: -0.5),
                                           ),
                                         ],
@@ -550,7 +721,10 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
           if (_isImageViewerOpen)
             Positioned.fill(
               child: GestureDetector(
-                onTap: () => setState(() => _isImageViewerOpen = false),
+                onTap: () => setState(() {
+                  _isImageViewerOpen = false;
+                  _isImageZoomed = false;
+                }),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   child: Container(
@@ -558,11 +732,34 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                     child: Stack(
                       children: [
                         Center(
-                          child: InteractiveViewer(
-                            panEnabled: true,
-                            minScale: 0.5,
-                            maxScale: 4.0,
-                            child: _buildExpandedImage(),
+                          child: GestureDetector(
+                            onTap: () => setState(() => _isImageZoomed = !_isImageZoomed),
+                            onDoubleTap: () => setState(() => _isImageZoomed = !_isImageZoomed),
+                            child: InteractiveViewer(
+                              panEnabled: true,
+                              minScale: 0.1,
+                              maxScale: 5.0,
+                              child: _buildExpandedImage(),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 40,
+                          right: 80,
+                          child: InkWell(
+                            onTap: () => setState(() => _isImageZoomed = !_isImageZoomed),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(20)),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(_isImageZoomed ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white, size: 18),
+                                  const SizedBox(width: 4),
+                                  Text(_isImageZoomed ? "Original" : "Full View", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                         Positioned(
@@ -572,7 +769,10 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                             decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
                             child: IconButton(
                               icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                              onPressed: () => setState(() => _isImageViewerOpen = false),
+                              onPressed: () => setState(() {
+                                _isImageViewerOpen = false;
+                                _isImageZoomed = false;
+                              }),
                             ),
                           ),
                         ),
@@ -590,16 +790,17 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
 
 
   Widget _buildExpandedImage() {
+    final fit = _isImageZoomed ? BoxFit.none : BoxFit.contain;
     if (_expandedImagePath != null && _expandedImagePath!.isNotEmpty) {
       final file = io.File(_expandedImagePath!);
-      if (file.existsSync()) return Image.file(file, fit: BoxFit.contain);
+      if (file.existsSync()) return Image.file(file, fit: fit);
     }
     if (_expandedImageUrl != null && _expandedImageUrl!.isNotEmpty) {
       return CachedNetworkImage(
         imageUrl: _expandedImageUrl!,
-        fit: BoxFit.contain,
-        placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-        errorWidget: (context, url, error) => const Icon(Icons.error, size: 50, color: Colors.white),
+        fit: fit,
+        placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: Colors.tealAccent)),
+        errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
       );
     }
     return const Icon(Icons.restaurant, size: 100, color: Colors.white54);
@@ -629,34 +830,37 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  _buildModernInfoRow(Icons.branding_watermark, "Brand", widget.item.brand ?? 'N/A', textColor, isLight),
-                  _buildModernInfoRow(Icons.production_quantity_limits, "Quantity", "${widget.item.quantity} units", textColor, isLight),
-                  if (widget.item.weight != null && widget.item.weight! > 0)
-                    _buildModernInfoRow(Icons.monitor_weight, "WeightBaseline", "${widget.item.weight} kg", textColor, isLight),
-                  _buildModernInfoRow(Icons.calendar_month, "Expiry", DateFormat('MMM dd, yyyy - HH:mm').format(widget.item.expiryDate), textColor, isLight),
-                  _buildModernInfoRow(Icons.info_outline, "Auto-Estimation", widget.item.expirySource == 'estimated' ? 'Estimated' : (widget.item.expirySource ?? 'Manual'), textColor, isLight),
-                  if (widget.item.reminderDate != null)
-                    _buildModernInfoRow(Icons.alarm, "Reminder", DateFormat('MMM dd, yyyy - HH:mm').format(widget.item.reminderDate!), textColor, isLight),
+                  _buildModernInfoRow(Icons.branding_watermark, "Brand", _item.brand ?? 'N/A', textColor, isLight),
+                  _buildModernInfoRow(Icons.production_quantity_limits, "Quantity", "${_item.quantity} units", textColor, isLight),
+                  if (_item.weight != null && _item.weight! > 0)
+                    _buildModernInfoRow(Icons.monitor_weight, "WeightBaseline", "${_item.weight} kg", textColor, isLight),
+                  _buildModernInfoRow(Icons.calendar_month, "Expiry", DateFormat('MMM dd, yyyy - HH:mm').format(_item.expiryDate), textColor, isLight),
+                  _buildModernInfoRow(Icons.info_outline, "Auto-Estimation", (_item.expirySource == 'estimated' || _item.expirySource == 'AI' || _item.expirySource == 'AI_EDIT') ? 'AI' : (_item.expirySource ?? 'Manual'), textColor, isLight),
+                  if (_item.reminderDate != null)
+                    _buildModernInfoRow(Icons.alarm, "Reminder", DateFormat('MMM dd, yyyy - HH:mm').format(_item.reminderDate!), textColor, isLight),
                   
-                  // 🔹 New Calendar Sync Action
+                  // 🔹 Local Reminder Sync Action
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: InkWell(
-                      onTap: () => CalendarService.syncItemExpiry(widget.item),
+                      onTap: () => _pickReminder(isLight),
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
-                          color: (isLight ? Colors.blue : Colors.blueAccent).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: (isLight ? Colors.blue : Colors.blueAccent).withOpacity(0.3)),
+                          color: (isLight ? Colors.orange : Colors.orangeAccent).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: (isLight ? Colors.orange : Colors.orangeAccent).withOpacity(0.3)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.calendar_today, size: 16, color: isLight ? Colors.blue : Colors.blueAccent),
-                            const SizedBox(width: 8),
-                            Text("Sync to Google Calendar", style: TextStyle(color: isLight ? Colors.blue : Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                            Icon(Icons.alarm_add, size: 18, color: isLight ? Colors.orange : Colors.orangeAccent),
+                            const SizedBox(width: 10),
+                            Text(
+                              _item.reminderDate != null ? "Update Reminder" : "Set Custom Reminder", 
+                              style: TextStyle(color: isLight ? Colors.orange.shade900 : Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)
+                            ),
                           ],
                         ),
                       ),
@@ -733,22 +937,22 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
     );
   }
 
-  DecorationImage? _buildItemDecorationImage() {
-    if (widget.item.imagePath != null && widget.item.imagePath!.isNotEmpty) {
-      final file = io.File(widget.item.imagePath!);
+  DecorationImage? _buildItemDecorationImage([BoxFit fit = BoxFit.cover]) {
+    if (_item.imagePath != null && _item.imagePath!.isNotEmpty) {
+      final file = io.File(_item.imagePath!);
       if (file.existsSync()) {
-        return DecorationImage(image: FileImage(file), fit: BoxFit.cover);
+        return DecorationImage(image: FileImage(file), fit: fit);
       }
     }
-    if (widget.item.imageUrl != null && widget.item.imageUrl!.isNotEmpty) {
-      return DecorationImage(image: NetworkImage(widget.item.imageUrl!), fit: BoxFit.cover);
+    if (_item.imageUrl != null && _item.imageUrl!.isNotEmpty) {
+      return DecorationImage(image: NetworkImage(_item.imageUrl!), fit: fit);
     }
     return null;
   }
 
   Widget? _buildItemImageFallback() {
-    if ((widget.item.imageUrl == null || widget.item.imageUrl!.isEmpty) && 
-        (widget.item.imagePath == null || widget.item.imagePath!.isEmpty)) {
+    if ((_item.imageUrl == null || _item.imageUrl!.isEmpty) && 
+        (_item.imagePath == null || _item.imagePath!.isEmpty)) {
       return Center(
         child: Icon(
           Icons.restaurant, 

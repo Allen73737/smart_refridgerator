@@ -9,6 +9,8 @@ import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
+import '../services/api_service.dart';
+import '../services/socket_service.dart';
 
 class SplashIntro extends StatefulWidget {
   const SplashIntro({Key? key}) : super(key: key);
@@ -78,6 +80,11 @@ class _SplashIntroState extends State<SplashIntro>
           FadeSlidePageRoute(page: const LoginScreen()),
         );
       } else {
+        // 🔥 Re-detect backend BEFORE auto-login to HomeScreen
+        // This ensures local backend is used if it's now reachable
+        await ApiService.initializeBackend();
+        print('🎯 [SplashIntro] Auto-login using: ${ApiService.baseDomain}');
+        SocketService.init(); // Re-init socket with the correct URL
         // Direct to home if logged in and biometrics not required
         Navigator.pushReplacement(
           context,

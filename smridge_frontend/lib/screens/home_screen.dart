@@ -28,6 +28,7 @@ import 'privacy_policy_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
+import 'activity_screen.dart';
 import 'help_support_screen.dart';
 import 'theme_settings_screen.dart';
 import 'about_screen.dart';
@@ -37,6 +38,7 @@ import '../widgets/system_monitoring_indicators.dart'; // New import
 import '../widgets/product_details_overlay.dart'; // New import
 import '../widgets/chat_assistant_overlay.dart'; // New import
 import '../services/socket_service.dart';
+import '../services/icon_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -62,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   InventoryItem? _scannedItem;
   int? _editItemIndex;
   int unreadNotifications = 0;
+  Timer? _expiryCheckTimer; // 🔹 Added for periodic check
   DateTime? _lastSyncTime;
   final Duration _syncThrottle = const Duration(seconds: 10);
 
@@ -89,57 +92,114 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void initState() {
+    super.initState();
     _fetchProfile();
     _loadInventory();
     _fetchNotificationsCount();
     _initSocket();
     _setupNotifications();
+    _logAppOpen();
+
+    // 🔹 Start periodic expiry check every minute
+    _expiryCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      _checkExpiryTimers();
+    });
+  }
+
+  Future<void> _logAppOpen() async {
+    final token = await SecureStorageService.getToken();
+    if (token != null) {
+      await ApiService.logActivity("APP_OPEN", "User opened the Smridge app", token);
+    }
   }
 
   @override
   void dispose() {
+    _expiryCheckTimer?.cancel(); // 🔹 Clean up timer
     SocketService.off('inventory_update');
     SocketService.off('sensor_data');
     SocketService.off('notification_update');
     super.dispose();
   }
 
+  // 🚀 Schedule background notifications for all items
+  Future<void> _scheduleExpiryAlerts(List<InventoryItem> items) async {
+    final service = NotificationService();
+    // Clear existing to avoid duplicate pings
+    await service.cancelAllScheduled(); 
+
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      final stableId = item.id.hashCode;
+
+      // 🚨 Schedule Expiry Alert (3 hours before)
+      await service.scheduleExpiryNotification(stableId, item.name, item.expiryDate);
+
+      // ⏰ Schedule Custom Reminder (if set)
+      if (item.reminderDate != null) {
+        await service.scheduleLocalReminder(stableId, item.name, item.reminderDate!);
+      }
+    }
+  }
+
   Future<void> _fetchNotificationsCount() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     if (token != null) {
       final notifs = await ApiService.getNotifications(token);
       if (mounted) {
+        final List<dynamic> unreadNotifs = notifs.where((n) => n != null && n['isRead'] == false).toList();
         setState(() {
-          unreadNotifications = notifs.where((n) => n != null && n['isRead'] == false).length.toInt();
+          unreadNotifications = unreadNotifs.length;
         });
+
+        // 📡 Sync unread backend notifications to local device notification shade
+        final prefs = await SharedPreferences.getInstance();
+        final List<String> shownNotifIds = prefs.getStringList('shown_notif_ids') ?? [];
+        
+        for (var n in unreadNotifs) {
+          final String id = n['_id']?.toString() ?? "";
+          if (id.isNotEmpty && !shownNotifIds.contains(id)) {
+            // New unread notification! Show it in the shade
+            await NotificationService().showNotification(
+              n['title'] ?? "Smridge Alert",
+              n['message'] ?? "",
+              colorHex: n['type'] == 'EXPIRY' ? '#FF007A' : '#00F2FF',
+              context: context,
+            );
+            shownNotifIds.add(id);
+          }
+        }
+        
+        // Keep only last 50 IDs to avoid hitting SharedPreferences limits
+        if (shownNotifIds.length > 50) {
+          shownNotifIds.removeRange(0, shownNotifIds.length - 50);
+        }
+        await prefs.setStringList('shown_notif_ids', shownNotifIds);
       }
     }
   }
 
   Future<void> _setupNotifications() async {
-    final notificationService = NotificationService();
+    final service = NotificationService();
+    await service.requestPermissions();
     
-    // 1️⃣ Request Permissions
-    await notificationService.requestPermissions();
-
-    // 2️⃣ Sync Token on Startup
-    final prefs = await SharedPreferences.getInstance();
-    final authToken = prefs.getString('token');
-    
-    if (authToken != null) {
-      final fcmToken = await notificationService.getToken();
-      if (fcmToken != null) {
+    // 📡 Get current token and sync to backend
+    final fcmToken = await service.getToken();
+    if (fcmToken != null) {
+      final authToken = await SecureStorageService.getToken();
+      if (authToken != null) {
         print("📲 Syncing FCM Token: $fcmToken");
         await ApiService.saveFcmToken(fcmToken, authToken);
       }
-      
-      // 3️⃣ Listen for Token Refreshes
-      notificationService.listenToTokenRefresh((newToken) async {
-        print("📲 Token Refreshed: $newToken");
-        await ApiService.saveFcmToken(newToken, authToken);
-      });
     }
+
+    service.listenToTokenRefresh((token) async {
+      final authToken = await SecureStorageService.getToken();
+      if (authToken != null) {
+        print("📲 Token Refreshed: $token");
+        await ApiService.saveFcmToken(token, authToken);
+      }
+    });
   }
 
   void _initSocket() {
@@ -185,8 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadInventory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     
     if (token != null) {
       final items = await ApiService.getInventory(token);
@@ -194,13 +253,23 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           inventory = items;
         });
+        
+        // 🕒 Schedule Background Notifications for Expiry
+        _scheduleExpiryAlerts(items);
+        IconService.updateAppIcon(items); 
       }
     }
   }
 
+  void _checkExpiryTimers() {
+    if (inventory.isEmpty) return;
+    for (var item in inventory) {
+      NotificationService().showCountdownNotification(item.name, item.expiryDate);
+    }
+  }
+
   Future<void> _fetchProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     if (token != null && token.isNotEmpty && token != 'mock-token') {
       final profile = await ApiService.getProfile(token);
       if (profile != null && mounted) {
@@ -238,8 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       // --- IMMEDIATE CLOUD SYNC ---
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await SecureStorageService.getToken();
       if (token != null && token.isNotEmpty && token != 'mock-token') {
         final success = await ApiService.uploadProfileImage(File(pickedFile.path), token);
         if (success) {
@@ -288,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
             TextButton(
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
-                final token = prefs.getString('token');
+                final token = await SecureStorageService.getToken();
                 
                 if (token != null) {
                   final success = await ApiService.updateProfile(nameController.text, emailController.text, token);
@@ -318,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> addInventoryItem(InventoryItem item) async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token'); 
+    final token = await SecureStorageService.getToken();
     
     if (token == null || token.isEmpty || token == 'mock-token') {
       if (mounted) {
@@ -337,7 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> updateInventoryItem(InventoryItem item) async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token'); 
+    final token = await SecureStorageService.getToken();
     
     if (token == null || token.isEmpty || token == 'mock-token') {
       if (mounted) {
@@ -369,7 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (item.id != null) {
        final prefs = await SharedPreferences.getInstance();
-       final token = prefs.getString('token');
+       final token = await SecureStorageService.getToken();
        if (token != null) {
           await ApiService.deleteFood(item.id!, token);
        }
@@ -555,7 +623,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-          ),
+          ).animate(delay: (index * 50).ms).fadeIn(duration: 400.ms).slideX(begin: 0.1, curve: Curves.easeOutQuad),
         );
       },
     );
@@ -624,7 +692,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       child: Scaffold(
         key: _scaffoldKey,
-      backgroundColor: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : const Color(0xFF0E1215)),
+      backgroundColor: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : const Color(0xFF050B12)),
 
       ////////////////////////////////////////////////////////////
       // 🔹 DRAWER (HAMBURGER MENU)
@@ -637,7 +705,7 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: isLight ? Colors.white.withOpacity(0.95) : (isDark ? Colors.grey.shade900.withOpacity(0.95) : null),
             gradient: (isLight || isDark) ? null : LinearGradient(
-              colors: [const Color(0xFF16222A).withOpacity(0.95), const Color(0xFF3A6073).withOpacity(0.95)],
+              colors: [const Color(0xFF050B12).withOpacity(0.95), const Color(0xFF0D2137).withOpacity(0.95)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -853,6 +921,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onProfileTap: () => setState(() => selectedTab = 7),
                       onHelpTap: () => setState(() => selectedTab = 8),
                       onPrivacyTap: () => setState(() => selectedTab = 9),
+                      onActivityTap: () => setState(() => selectedTab = 10),
                     ),
 
                     // 6: ANALYTICS
@@ -869,6 +938,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     // 9: PRIVACY POLICY
                     PrivacyPolicyScreen(onBack: () => setState(() => selectedTab = 5)),
+
+                    // 10: ACTIVITY
+                    ActivityScreen(onBack: () => setState(() => selectedTab = 5)),
                   ],
                 ),
             ],
@@ -885,14 +957,14 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 20,
               child: CreativeNavbar(
                 onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              ),
+              ).animate().slideY(begin: -1, duration: 800.ms, curve: Curves.easeOutQuart).fadeIn(),
             ),
 
           //////////////////////////////////////////////////////////
           // BOTTOM DOCK
           //////////////////////////////////////////////////////////
 
-          if (MediaQuery.of(context).viewInsets.bottom == 0)
+          if (MediaQuery.of(context).viewInsets.bottom == 0 && _addFlowState != AddFlowState.scanner)
             Positioned(
             bottom: 20,
             left: 20,
@@ -927,9 +999,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     selectedTab = 6; 
                   });
+                } else if (index == 2) {
+                  // 🚀 Double tap Inventory → show List View!
+                  if (_fridgeKey.currentState != null) {
+                    _fridgeKey.currentState!.setState(() {
+                       _fridgeKey.currentState!.showInventoryList = true;
+                    });
+                  }
                 }
               },
-            ),
+            ).animate().slideY(begin: 1, duration: 800.ms, curve: Curves.easeOutQuart).fadeIn(),
           ),
 
           //////////////////////////////////////////////////////////
@@ -956,11 +1035,12 @@ class _HomeScreenState extends State<HomeScreen> {
           //////////////////////////////////////////////////////////
           // 🤖 MOVABLE AI CHAT ICON
           //////////////////////////////////////////////////////////
-          Positioned(
-            right: _chatIconPosition.dx,
-            bottom: _chatIconPosition.dy,
-            child: GestureDetector(
-              onPanUpdate: (details) {
+          if (_addFlowState != AddFlowState.scanner)
+            Positioned(
+              right: _chatIconPosition.dx,
+              bottom: _chatIconPosition.dy,
+              child: GestureDetector(
+                onPanUpdate: (details) {
                 setState(() {
                   double nextX = _chatIconPosition.dx - details.delta.dx;
                   double nextY = _chatIconPosition.dy - details.delta.dy;
@@ -974,6 +1054,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
               child: FloatingActionButton(
+                backgroundColor: Colors.tealAccent,
+                elevation: 12,
                 onPressed: () {
                   showModalBottomSheet(
                     context: context,
@@ -1033,7 +1115,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     dateAdded: oldItem.dateAdded,
                                     imageUrl: oldItem.imageUrl,
                                     imagePath: oldItem.imagePath,
-                                    expirySource: "AI_EDIT",
+                                    expirySource: "AI",
                                   );
                                   updateInventoryItem(updatedItem).then((_) => _loadInventory()); 
                                   SnackbarUtils.showSuccess(context, "Updated '$itemName' via AI Assistant.");
@@ -1130,7 +1212,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
-                backgroundColor: Colors.tealAccent,
                 child: const Icon(Icons.smart_toy, color: Colors.black),
               ),
             ).animate().scale(delay: 500.ms).fadeIn(),

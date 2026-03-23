@@ -18,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback? onProfileTap;
   final VoidCallback? onPrivacyTap;
   final VoidCallback? onHelpTap;
+  final VoidCallback? onActivityTap;
 
   const SettingsScreen({
     super.key, 
@@ -25,6 +26,7 @@ class SettingsScreen extends StatefulWidget {
     this.onProfileTap,
     this.onPrivacyTap,
     this.onHelpTap,
+    this.onActivityTap,
   });
 
   @override
@@ -96,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.only(top: 80, bottom: 24, left: 24, right: 24),
+              padding: const EdgeInsets.only(top: 80, bottom: 160, left: 24, right: 24),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
@@ -126,6 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildSettingsTile(Icons.help_outline, "Help & Support", isLight, onTap: widget.onHelpTap ?? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpSupportScreen()))),
                         _buildSettingsTile(Icons.info_outline, "About Smridge", isLight, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()))),
                         _buildSettingsTile(Icons.history, "Notification History", isLight, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationHistoryScreen()))),
+                        _buildSettingsTile(Icons.analytics_outlined, "My Activity", isLight, onTap: widget.onActivityTap ?? () {}),
                         
                         const SizedBox(height: 25),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 1),

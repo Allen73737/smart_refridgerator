@@ -7,6 +7,7 @@ const sensorDataSchema = new mongoose.Schema({
     weight: { type: Number, required: true },
     doorStatus: { type: String, enum: ['open', 'closed'], required: true },
     energyConsumption: { type: Number, default: 0 }, // kWh
+    isSimulated: { type: Boolean, default: false },
     timestamp: { type: Date, default: Date.now }
 });
 

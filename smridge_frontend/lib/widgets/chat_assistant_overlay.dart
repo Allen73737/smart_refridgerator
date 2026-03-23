@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui'; // 🔹 Added for Blur
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -6,36 +7,69 @@ import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../providers/theme_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../services/secure_storage_service.dart';
 
 class ChatAssistantOverlay extends StatefulWidget {
   final VoidCallback onClose;
-  final Function(String action, String? value)? onActionTriggered; // Added
+  final Function(String action, String? value)? onActionTriggered;
 
-  const ChatAssistantOverlay({super.key, required this.onClose, this.onActionTriggered}); // Updated
+  const ChatAssistantOverlay({super.key, required this.onClose, this.onActionTriggered});
 
   @override
   State<ChatAssistantOverlay> createState() => _ChatAssistantOverlayState();
 }
 
-class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
+class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> with SingleTickerProviderStateMixin {
   final TextEditingController _msgController = TextEditingController();
-  // 🔹 Track which message actions have been confirmed at least once
+  final ScrollController _scrollController = ScrollController();
+  bool _showScrollToBottom = false;
   final Set<int> _confirmedIndices = {};
   
-  // 🔹 STATIC PERSISTENCE: Messages stay until app is closed or logged out
   static final List<Map<String, String>> _persistedMessages = [
-    {"role": "assistant", "content": "Hello! I am Smridgey - The Smridge AI Assistant. How can I help you manage your fridge today?"}
+    {"role": "assistant", "content": "Hello! I am Smridgey - Your Smridge AI Companion. How can I transform your kitchen experience today? ✨"}
   ];
 
   bool _isTyping = false;
-  bool _isExpanded = false; // 🔹 Expandable state
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(() {
+      final isAtBottom = _scrollController.hasClients &&
+          _scrollController.offset >= _scrollController.position.maxScrollExtent - 100;
+      if (isAtBottom && _showScrollToBottom) {
+        setState(() => _showScrollToBottom = false);
+      } else if (!isAtBottom && !_showScrollToBottom) {
+        setState(() => _showScrollToBottom = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _msgController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutQuart,
+      );
+    }
+  }
 
   void _clearChat() {
     setState(() {
       _persistedMessages.clear();
       _persistedMessages.add({
         "role": "assistant", 
-        "content": "Hello! History cleared. How can I help you now?"
+        "content": "History purged. Fresh start! How may I assist? 🌿"
       });
     });
   }
@@ -44,7 +78,6 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
 
-    // 🔹 Text-based Confirmation Logic
     final affirmationWords = ['confirm', 'yes', 'yep', 'y', 'do it', 'sure', 'pls', 'please'];
     if (affirmationWords.contains(text.toLowerCase())) {
        for (int i = _persistedMessages.length - 1; i >= 0; i--) {
@@ -72,11 +105,9 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
     });
     _msgController.clear();
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     if (token == null) return;
     
-    // Pass history to backend
     final history = _persistedMessages.map((m) => {
       "role": m["role"]!,
       "content": m["content"]!,
@@ -104,13 +135,14 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
         _isTyping = false;
         _persistedMessages.add({
           "role": "assistant", 
-          "content": cleanReply ?? "Sorry, I am having trouble connecting to the server.",
+          "content": cleanReply ?? "I'm having trouble connecting to my neural core. Please check your connection.",
           "action": detectedAction ?? "",
           "actionValue": actionValue ?? "",
         });
       });
+      
+      Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
 
-      // 🔹 AUTO-EXECUTION for non-inventory actions (UI customizations, etc.)
       final isInventoryAction = detectedAction == "ADD_ITEM_AI" || 
                                 detectedAction == "ADD_ITEM" || 
                                 detectedAction == "DELETE_ITEM" || 
@@ -127,209 +159,273 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final isLight = Provider.of<ThemeProvider>(context).currentTheme == ThemeType.light;
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final isLight = themeProvider.currentTheme == ThemeType.light;
+    final glassColor = isLight ? Colors.white.withOpacity(0.85) : Colors.black.withOpacity(0.75);
+    final accentColor = Theme.of(context).colorScheme.primary;
     final textColor = isLight ? Colors.black87 : Colors.white;
 
-    return SizedBox(
-      height: _isExpanded ? MediaQuery.of(context).size.height * 0.95 : MediaQuery.of(context).size.height * 0.75,
-      child: Material(
-          color: Colors.transparent,
+    return AnimatedContainer(
+      duration: 400.ms,
+      curve: Curves.easeInOutQuart,
+      margin: _isExpanded ? EdgeInsets.zero : const EdgeInsets.all(12),
+      height: _isExpanded ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.75,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(_isExpanded ? 0 : 32),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
           child: Container(
             decoration: BoxDecoration(
-              color: isLight ? Colors.white : const Color(0xFF1E2A33),
-              borderRadius: BorderRadius.circular(24),
+              color: glassColor,
+              borderRadius: BorderRadius.circular(_isExpanded ? 0 : 32),
+              border: Border.all(color: Colors.white24.withOpacity(0.1)),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20)
+                BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 40, spreadRadius: -5)
               ],
             ),
             child: Column(
             children: [
-              // Header
+              // Premium Header
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 decoration: BoxDecoration(
-                  color: isLight ? Colors.teal : Colors.teal.shade900,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  gradient: LinearGradient(
+                    colors: [accentColor.withOpacity(0.8), accentColor.withOpacity(0.4)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.smart_toy, color: Colors.white),
-                    const SizedBox(width: 8),
-                    const Expanded(child: Text("Smridgey - The Smridge AI Assistant", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-                    IconButton(
-                      tooltip: "Clear Chat",
-                      icon: const Icon(Icons.delete_sweep, color: Colors.white70),
-                      onPressed: _clearChat,
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                      child: const Icon(Icons.psychology, color: Colors.white, size: 24),
                     ),
-                    IconButton(
-                      tooltip: _isExpanded ? "Restore" : "Expand",
-                      icon: Icon(_isExpanded ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
-                      onPressed: () => setState(() => _isExpanded = !_isExpanded),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("SMRIDGEY", 
+                            style: GoogleFonts.orbitron(
+                              color: Colors.white, 
+                              fontSize: 18, 
+                              fontWeight: FontWeight.w900, 
+                              letterSpacing: 3,
+                            ),
+                          ),
+                          Text("AI Assistant • Online", style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: widget.onClose,
-                    )
+                    _headerAction(Icons.delete_sweep, _clearChat),
+                    _headerAction(_isExpanded ? Icons.fullscreen_exit : Icons.fullscreen, () => setState(() => _isExpanded = !_isExpanded)),
+                    _headerAction(Icons.close, widget.onClose),
                   ],
                 ),
               ),
 
-              // Chat History
+              // Chat Canvas
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  reverse: false,
-                  itemCount: _persistedMessages.length,
-                  itemBuilder: (context, index) {
-                    final msg = _persistedMessages[index];
-                    final isUser = msg["role"] == "user";
-                    return Align(
-                      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isUser 
-                              ? (isLight ? Colors.teal.shade100 : Colors.teal.shade800) 
-                              : (isLight ? Colors.grey.shade200 : Colors.white10),
-                          borderRadius: BorderRadius.circular(16).copyWith(
-                            bottomRight: isUser ? Radius.zero : const Radius.circular(16),
-                            bottomLeft: !isUser ? Radius.zero : const Radius.circular(16),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            MarkdownBody(
-                              data: msg["content"]!,
-                              styleSheet: MarkdownStyleSheet(
-                                p: TextStyle(color: textColor, fontSize: 16, height: 1.5),
-                                h3: TextStyle(
-                                  color: isLight ? Colors.teal.shade800 : Colors.tealAccent, 
-                                  fontWeight: FontWeight.bold, 
-                                  fontSize: 18,
-                                  height: 2.0,
-                                ),
-                                listBullet: TextStyle(color: textColor),
-                                strong: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            if (msg["action"] != null && msg["action"]!.isNotEmpty) ...[
-                              if (msg["action"] == "ADD_ITEM_AI" || 
-                                  msg["action"] == "ADD_ITEM" || 
-                                  msg["action"] == "DELETE_ITEM" || 
-                                  msg["action"] == "EDIT_ITEM" ||
-                                  msg["action"] == "OPEN_SCREEN") ...[
-                                const SizedBox(height: 10),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.teal,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  ),
-                                  icon: Icon(_getActionIcon(msg["action"]!, index), size: 18),
-                                  label: Text(_getActionLabel(msg["action"]!, msg["actionValue"], index)),
-                                  onPressed: () {
-                                    final actionType = msg["action"]!;
-                                    final isCRUD = actionType == "ADD_ITEM_AI" || 
-                                                 actionType == "ADD_ITEM" || 
-                                                 actionType == "DELETE_ITEM" || 
-                                                 actionType == "EDIT_ITEM";
-
-                                    if (isCRUD && !_confirmedIndices.contains(index)) {
-                                      if (widget.onActionTriggered != null) {
-                                        widget.onActionTriggered!(actionType, msg["actionValue"]);
-                                      }
-                                      setState(() => _confirmedIndices.add(index));
-                                    } else {
-                                      if (widget.onActionTriggered != null) {
-                                        if (isCRUD) {
-                                          widget.onActionTriggered!("OPEN_SCREEN", "Inventory");
-                                        } else {
-                                          widget.onActionTriggered!(actionType, msg["actionValue"]);
-                                        }
-                                        widget.onClose();
-                                      }
-                                    }
-                                  },
-                                ),
-                              ]
-                            ]
-                          ],
-                        ),
-                      ).animate().scale(duration: const Duration(milliseconds: 200), curve: Curves.easeOutBack),
-                    );
-                  },
+                child: Stack(
+                  children: [
+                    ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(20),
+                      itemCount: _persistedMessages.length,
+                      itemBuilder: (context, index) {
+                        final msg = _persistedMessages[index];
+                        final isUser = msg["role"] == "user";
+                        return _buildChatBubble(msg, isUser, index, isLight, textColor, accentColor);
+                      },
+                    ),
+                    if (_showScrollToBottom)
+                      Positioned(bottom: 20, right: 20, child: _buildScrollDownIcon()),
+                  ],
                 ),
               ),
 
-              if (_isTyping)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text("AI is typing...", style: TextStyle(color: isLight ? Colors.black54 : Colors.white54, fontStyle: FontStyle.italic))
-                        .animate(onPlay: (c) => c.repeat(reverse: true)).fade(duration: 500.ms),
-                  ),
-                ),
+              if (_isTyping) _buildTypingIndicator(isLight),
 
-              // Input Field
+              // Glassy Input Field
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
                 decoration: BoxDecoration(
-                  color: isLight ? Colors.grey.shade100 : Colors.black12,
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+                  color: Colors.white.withOpacity(0.05),
+                  border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
                 ),
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _msgController,
-                        style: TextStyle(color: textColor),
-                        decoration: InputDecoration(
-                          hintText: "Ask about your fridge...",
-                          hintStyle: TextStyle(color: isLight ? Colors.black38 : Colors.white38),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-                          filled: true,
-                          fillColor: isLight ? Colors.white : Colors.white12,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isLight ? Colors.black.withOpacity(0.05) : Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(24),
                         ),
-                        onSubmitted: (_) => _sendMessage(),
+                        child: TextField(
+                          controller: _msgController,
+                          style: TextStyle(color: textColor, fontSize: 15),
+                          decoration: InputDecoration(
+                            hintText: "Type a command...",
+                            hintStyle: TextStyle(color: textColor.withOpacity(0.3)),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          ),
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      decoration: const BoxDecoration(color: Colors.teal, shape: BoxShape.circle),
-                      child: IconButton(
-                        icon: const Icon(Icons.send, color: Colors.white),
-                        onPressed: _sendMessage,
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: _sendMessage,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
+                        child: const Icon(Icons.send_rounded, color: Colors.black, size: 24),
                       ),
-                    )
+                    ),
                   ],
                 ),
               )
             ],
+            ),
           ),
         ),
       ),
-    ).animate().slideY(begin: 1.5, curve: Curves.easeOutCubic);
+    ).animate()
+     .fadeIn(duration: 400.ms)
+     .scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack)
+     .slideY(begin: 0.2, curve: Curves.easeOutCubic);
+  }
+
+  Widget _headerAction(IconData icon, VoidCallback onTap) {
+    return IconButton(
+      icon: Icon(icon, color: Colors.white, size: 22),
+      onPressed: onTap,
+      splashRadius: 24,
+    );
+  }
+
+  Widget _buildChatBubble(Map<String, String> msg, bool isUser, int index, bool isLight, Color textColor, Color accentColor) {
+    final bubbleColor = isUser 
+        ? accentColor.withOpacity(isLight ? 0.7 : 0.2) 
+        : (isLight ? Colors.white : Colors.white10);
+    
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: bubbleColor,
+          borderRadius: BorderRadius.circular(24).copyWith(
+            bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(24),
+            bottomLeft: !isUser ? const Radius.circular(4) : const Radius.circular(24),
+          ),
+          boxShadow: [
+            if (isUser) BoxShadow(color: accentColor.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            MarkdownBody(
+              data: msg["content"]!,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(color: isUser && isLight ? Colors.white : textColor, fontSize: 14, height: 1.5),
+                strong: const TextStyle(fontWeight: FontWeight.bold),
+                code: TextStyle(backgroundColor: Colors.black12, color: accentColor),
+              ),
+            ),
+            if (msg["action"] != null && msg["action"]!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildActionButton(msg, index, accentColor),
+            ]
+          ],
+        ),
+      ).animate().fadeIn(duration: 400.ms).slideX(begin: isUser ? 0.1 : -0.1),
+    );
+  }
+
+  Widget _buildActionButton(Map<String, String> msg, int index, Color accentColor) {
+    final action = msg["action"]!;
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: accentColor,
+        foregroundColor: Colors.black,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        elevation: 0,
+      ),
+      icon: Icon(_getActionIcon(action, index), size: 18),
+      label: Text(_getActionLabel(action, msg["actionValue"], index), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      onPressed: () {
+        final actionType = msg["action"]!;
+        final isCRUD = actionType == "ADD_ITEM_AI" || actionType == "ADD_ITEM" || 
+                       actionType == "DELETE_ITEM" || actionType == "EDIT_ITEM";
+
+        if (isCRUD && !_confirmedIndices.contains(index)) {
+          widget.onActionTriggered?.call(actionType, msg["actionValue"]);
+          setState(() => _confirmedIndices.add(index));
+        } else {
+          if (isCRUD) {
+            widget.onActionTriggered?.call("OPEN_SCREEN", "Inventory");
+          } else {
+            widget.onActionTriggered?.call(actionType, msg["actionValue"]);
+          }
+          widget.onClose();
+        }
+      },
+    );
+  }
+
+  Widget _buildTypingIndicator(bool isLight) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 20, bottom: 10),
+      child: Row(
+        children: [
+          Text("analyzing", style: TextStyle(color: isLight ? Colors.black45 : Colors.white54, fontSize: 12, fontStyle: FontStyle.italic)),
+          const SizedBox(width: 4),
+          _dot(0), _dot(1), _dot(2),
+        ],
+      ),
+    );
+  }
+
+  Widget _dot(int delay) {
+    return Container(
+      width: 4, height: 4,
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: const BoxDecoration(color: Colors.tealAccent, shape: BoxShape.circle),
+    ).animate(onPlay: (c) => c.repeat(reverse: true))
+     .scale(delay: (delay * 150).ms, duration: 400.ms);
+  }
+
+  Widget _buildScrollDownIcon() {
+    return GestureDetector(
+      onTap: _scrollToBottom,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: const BoxDecoration(color: Colors.teal, shape: BoxShape.circle),
+        child: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+      ),
+    ).animate().scale().fade();
   }
 
   IconData _getActionIcon(String action, int index) {
-    if (action == "OPEN_SCREEN") return Icons.auto_awesome_motion;
-    if (_confirmedIndices.contains(index)) return Icons.explore_outlined;
-    return Icons.check_circle_outline;
+    if (action == "OPEN_SCREEN") return Icons.explore_rounded;
+    if (_confirmedIndices.contains(index)) return Icons.arrow_forward_rounded;
+    return Icons.check_circle_rounded;
   }
 
   String _getActionLabel(String action, String? value, int index) {
     final isCRUD = action == "ADD_ITEM_AI" || action == "ADD_ITEM" || 
                    action == "DELETE_ITEM" || action == "EDIT_ITEM";
-
-    if (isCRUD && !_confirmedIndices.contains(index)) return "Confirm";
-    
+    if (isCRUD && !_confirmedIndices.contains(index)) return "Execute Command";
     if (action == "OPEN_SCREEN" || (isCRUD && _confirmedIndices.contains(index))) {
-       return "Navigate to Fridge Inventory";
+       return "View Hub";
     }
     return "Confirm";
   }

@@ -104,7 +104,9 @@ exports.addItem = async (req, res) => {
 // 🟢 Get All Items + Expiry Detection
 exports.getItems = async (req, res) => {
   try {
+    console.log(`🔍 Fetching Items for User: ${req.user.id}`);
     let items = await Item.find({ userId: req.user.id });
+    console.log(`📦 Found ${items.length} items in Database.`);
 
     const today = new Date();
 

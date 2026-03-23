@@ -1,9 +1,13 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 import 'audio_service.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/material.dart';
 import '../providers/fridge_customization_provider.dart';
+import 'api_service.dart';
+import 'secure_storage_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -16,10 +20,42 @@ class NotificationService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
 
   Future<void> init() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('ic_notif');
     const settings = InitializationSettings(android: androidSettings);
 
     await _plugin.initialize(settings);
+    
+    // 🕒 Initialize Timezones for Background Scheduling
+    tz.initializeTimeZones();
+    
+    try {
+      // 🌓 Resilient Timezone Detection
+      final now = DateTime.now();
+      final offset = now.timeZoneOffset.inMinutes;
+
+      // Common mappings for UTC offsets to IANA names
+      String zoneName = "UTC";
+      if (offset == 330) zoneName = "Asia/Kolkata";
+      else if (offset == 0) zoneName = "UTC";
+      else if (offset == -300) zoneName = "America/New_York";
+      else if (offset == -480) zoneName = "America/Los_Angeles";
+      else if (offset == 60) zoneName = "Europe/London";
+      else if (offset == 120) zoneName = "Europe/Paris";
+      else if (offset == 480) zoneName = "Asia/Shanghai";
+      else if (offset == 540) zoneName = "Asia/Tokyo";
+      else {
+        // 🔹 Generic offset-based location if not in common list
+        final hours = offset ~/ 60;
+        final mins = offset % 60;
+        zoneName = "Etc/GMT${hours >= 0 ? '-' : '+'}${hours.abs()}";
+      }
+      
+      tz.setLocalLocation(tz.getLocation(zoneName));
+      print("🕒 Timezone initialized to: $zoneName (Offset: $offset mins)");
+    } catch (e) {
+      print("⚠️ Timezone detection failed, falling back to UTC: $e");
+      tz.setLocalLocation(tz.getLocation("UTC"));
+    }
   }
 
   Future<void> requestPermissions() async {
@@ -43,10 +79,38 @@ class NotificationService {
   }
 
   void listenToTokenRefresh(Function(String) onRefresh) {
-    _fcm.onTokenRefresh.listen(onRefresh);
+    _fcm.onTokenRefresh.listen((token) {
+       onRefresh(token);
+       syncToken(token);
+    });
   }
 
-  Future<void> showNotification(String title, String body, {BuildContext? context}) async {
+  // 📡 Sync token to backend
+  Future<void> syncToken(String fcmToken) async {
+    final token = await SecureStorageService.getToken();
+    if (token != null) {
+      await ApiService.saveFcmToken(fcmToken, token);
+      print("📡 FCM Token Synced to Backend");
+    }
+  }
+
+  // 🚀 Top-level background message handler for FCM
+  @pragma('vm:entry-point')
+  static Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+    print("🚀 Handling background message: ${message.messageId}");
+    // Note: Local notification might not show here unless you manually call the plugin
+    // because this runs in a separate isolate.
+  }
+
+  Future<void> showNotification(String title, String body, {BuildContext? context, String? colorHex}) async {
+    Color? notificationColor;
+    if (colorHex != null) {
+      try {
+        final hex = colorHex.replaceAll('#', '0xFF');
+        notificationColor = Color(int.parse(hex));
+      } catch (e) {}
+    }
+
     if (context != null) {
       final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
       bool isExpiry = title.toLowerCase().contains('expir') || body.toLowerCase().contains('expir');
@@ -59,15 +123,19 @@ class NotificationService {
       AudioService.playNotification();
     }
 
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
       importance: Importance.max,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: 'ic_notif',
+      color: notificationColor, // 🔹 Status bar color support
+      ledColor: notificationColor,
+      ledOnMs: 1000,
+      ledOffMs: 500,
     );
 
-    const details = NotificationDetails(android: androidDetails);
+    final details = NotificationDetails(android: androidDetails);
 
     await _plugin.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -78,29 +146,121 @@ class NotificationService {
   }
 
   Future<void> showCountdownNotification(String itemName, DateTime expiry) async {
-    final diff = expiry.difference(DateTime.now());
-    if (diff.isNegative) return;
+    final now = DateTime.now();
+    final diff = expiry.difference(now);
+    
+    // 🔹 Only show if within 3 hours of expiry
+    if (diff.isNegative || diff.inHours > 3) return;
 
     final androidDetails = AndroidNotificationDetails(
       'expiry_countdown_channel',
       'Expiry Countdown',
-      importance: Importance.low,
-      priority: Priority.low,
+      importance: Importance.max, 
+      priority: Priority.high,
+      fullScreenIntent: diff.inHours < 1, // 🚀 Disruptive alert for < 1 hour
       ongoing: true,
       showWhen: true,
       usesChronometer: true,
       when: expiry.millisecondsSinceEpoch,
       chronometerCountDown: true,
-      icon: '@mipmap/ic_launcher',
+      icon: 'ic_notif',
+      color: const Color(0xFFFF004D), // 🚨 High-Impact Warning Red
+      ledColor: const Color(0xFFFF004D),
+      ledOnMs: 1000,
+      ledOffMs: 500,
+      styleInformation: BigTextStyleInformation(
+        "🚨 **ULTRASONIC WARNING**: Your **$itemName** is reaching its expiration point! ⏳\n\nTake immediate action to utilize this item before it goes to waste. Smridge AI recommends immediate consumption.",
+        contentTitle: "⚡ EXPIRE ALERT: $itemName",
+        summaryText: "Smridge Freshness Protocol",
+        htmlFormatContent: true,
+        htmlFormatContentTitle: true,
+      ),
+      ticker: "Smridge Urgent Alert: $itemName",
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
     );
 
     final details = NotificationDetails(android: androidDetails);
     
     await _plugin.show(
-      999, // Static ID for countdown
-      "Expiry Countdown",
-      "'$itemName' will expire in some time",
+      itemName.hashCode, // 🔹 Unique ID per item to allow multiple timers
+      "⚡ EXPIRE ALERT: $itemName",
+      "Expiring in less than ${diff.inHours + 1} hours!",
       details,
     );
+  }
+
+  // 🚀 Schedule background notification for expiry
+  Future<void> scheduleExpiryNotification(int id, String itemName, DateTime expiryDate) async {
+    final now = DateTime.now();
+    
+    // 🔹 Ensure we use absolute local time for comparison and scheduling
+    final localExpiry = expiryDate.isUtc ? expiryDate.toLocal() : expiryDate;
+    final scheduledDate = localExpiry.subtract(const Duration(hours: 3));
+    
+    if (scheduledDate.isBefore(now)) return;
+
+    final androidDetails = AndroidNotificationDetails(
+      'expiry_scheduled_channel',
+      'Scheduled Expiry Alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+      icon: 'ic_notif',
+      color: const Color(0xFF00F2FF),
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    await _plugin.zonedSchedule(
+      id,
+      "🚨 Stay Fresh!",
+      "Reminder: Your **$itemName** is expiring in 3 hours. Plan your meal! 🥗",
+      tz.TZDateTime.from(scheduledDate, tz.local),
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  // ⏰ Schedule a custom user reminder
+  Future<void> scheduleLocalReminder(int id, String itemName, DateTime scheduledDate) async {
+    final now = DateTime.now();
+    final localScheduled = scheduledDate.isUtc ? scheduledDate.toLocal() : scheduledDate;
+
+    if (localScheduled.isBefore(now)) return;
+
+    final androidDetails = AndroidNotificationDetails(
+      'custom_reminders_channel',
+      'Personal Reminders',
+      importance: Importance.max,
+      priority: Priority.high,
+      icon: 'ic_notif',
+      color: const Color(0xFFFFAB00), 
+      styleInformation: BigTextStyleInformation(
+        "🔔 **REMINDER**: It's time to check on your **$itemName**! 🥗\n\nYou set this reminder to stay on top of your fridge inventory. Open Smridge to manage your items.",
+        contentTitle: "⏰ Smridge Reminder: $itemName",
+        summaryText: "Smridge Personal Protocol",
+        htmlFormatContent: true,
+        htmlFormatContentTitle: true,
+      ),
+      category: AndroidNotificationCategory.reminder,
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+
+    await _plugin.zonedSchedule(
+      id + 20000, // 🔹 Offset ID to avoid collision with expiry (0-10000) or timers (hashcodes)
+      "⏰ Reminder: $itemName",
+      "Smridge Reminder: Check your $itemName now!",
+      tz.TZDateTime.from(localScheduled, tz.local),
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  // 🗑️ Clear all scheduled notifications (e.g. before re-scheduling)
+  Future<void> cancelAllScheduled() async {
+    await _plugin.cancelAll();
   }
 }

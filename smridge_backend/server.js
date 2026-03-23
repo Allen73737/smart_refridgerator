@@ -2,8 +2,10 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-require("dotenv").config();
-require("./cron/expiryCron");
+const http = require("http");
+const socketManager = require("./utils/socketManager");
+const sensorService = require("./utils/sensorService");
+const { getSensorScore } = require("./utils/freshnessUtils");
 
 const app = express();
 
@@ -27,44 +29,79 @@ app.use((req, res, next) => {
   }
   next();
 });
-const http = require("http");
-const socketManager = require("./utils/socketManager");
 
 app.use(express.json());
 
 const server = http.createServer(app);
 socketManager.init(server);
 
+// 🔹 MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch(err => console.log(err));
+  .then(() => {
+    console.log("MongoDB Connected");
+    require("./cron/expiryCron"); // Load cron after DB is ready
+  })
+  .catch(err => console.error("MongoDB Connection Error:", err));
 
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/items", require("./routes/itemRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+const activityRoutes = require("./routes/activityRoutes");
+app.use("/api/activities", activityRoutes);
 app.use("/api/sensors", require("./routes/sensorRoutes"));
 app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/ai", require("./routes/aiRoutes"));
 app.use("/uploads", express.static("uploads"));
 
-// Global Error Handler for Multer/Cloudinary
+app.get("/health", (req, res) => {
+  res.status(200).send("OK - Server is responsive");
+});
+
+// Global Error Handler
 app.use((err, req, res, next) => {
   if (err) {
-    console.error("--- ❌ Global Error Handler Caught Error ---");
-    console.error("Name:", err.name);
-    console.error("Message:", err.message);
-    console.error("Stack:", err.stack);
-    return res.status(500).json({ 
-      message: "Sync Error", 
-      error: err.message,
-      name: err.name 
-    });
+    console.error("--- ❌ Global Error Handler ---");
+    console.error(err.message);
+    return res.status(500).json({ message: "Internal Error", error: err.message });
   }
   next();
 });
 
-server.listen(process.env.PORT, () =>
-  console.log(`Server running on port ${process.env.PORT} (with Socket.io support)`)
-);
+const PORT = process.env.PORT || 5001;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT} (reach me at ${process.env.IP_OVERRIDE || '0.0.0.0'})`);
+  
+  // 🕒 1s Socket Sync (Simulation)
+  setInterval(async () => {
+    try {
+      const sensors = await sensorService.getCurrentSensors();
+      if (!sensors.isReal) {
+        const score = getSensorScore(sensors);
+        const freshness = Math.round((score.total / 60) * 100);
+        let status = "Fresh";
+        if (freshness < 60) status = "Caution";
+        if (freshness < 30) status = "Spoiled";
+
+        socketManager.emitEvent("sensor_data", {
+          ...sensors,
+          calculatedFreshness: freshness,
+          status,
+          isReal: false
+        });
+      }
+    } catch (err) {
+      // Quiet error log to prevent flood
+    }
+  }, 1000);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});

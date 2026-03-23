@@ -10,6 +10,7 @@ import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
+import '../screens/inventory_list_screen.dart';
 
 class Fridge3D extends StatefulWidget {
   final int selectedTab; // 0 home, 1 status, 2 inventory
@@ -111,7 +112,7 @@ class Fridge3DState extends State<Fridge3D>
       }
     }
 
-    if (widget.selectedTab != 2) {
+    if (oldWidget.selectedTab != widget.selectedTab && widget.selectedTab != 2) {
       showInventoryList = false;
     }
   }
@@ -174,18 +175,20 @@ class Fridge3DState extends State<Fridge3D>
             Matrix4 transform = Matrix4.identity()
               ..setEntry(3, 2, 0.001);
 
-            // ✅ STATUS = slight downward zoom (focuses upper fridge)
+            // ✅ STATUS = cinematic downward zoom + tilt
             if (zoomStatus) {
               transform
-                ..translate(0.0, 110 * t) // Reduced pan to prevent clipping
-                ..scale(1 + 0.35  * t);   // Reduced zoom to keep text visible
+                ..translate(0.0, 130 * t) // Pushed down slightly more
+                ..scale(1 + 0.45 * t)     // Increased zoom for impact
+                ..rotateX(-0.15 * t);     // Cinematic forward tilt
             }
 
-            // ✅ INVENTORY = slight upward zoom (focuses lower fridge)
+            // ✅ INVENTORY = cinematic upward zoom + tilt
             if (zoomInventory) {
               transform
-                ..translate(0.0, -180 * t) // Adjusted pan
-                ..scale(1 + 0.4  * t);     // Reduced zoom from 1.3 to 0.4
+                ..translate(0.0, -220 * t) // Pushed up slightly more
+                ..scale(1 + 0.5 * t)       // Increased zoom for impact
+                ..rotateX(0.12 * t);       // Cinematic backward tilt
             }
             
             // Allow manual pan hover within limits
@@ -482,6 +485,17 @@ class Fridge3DState extends State<Fridge3D>
   // SHELVES
   //////////////////////////////////////////////////////////////
 
+  Color _getFreshnessColor(InventoryItem item) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final exp = DateTime(item.expiryDate.year, item.expiryDate.month, item.expiryDate.day);
+    
+    if (exp.isBefore(today)) return Colors.redAccent;
+    final diff = exp.difference(today).inDays;
+    if (diff <= 3) return Colors.orangeAccent;
+    return Colors.greenAccent;
+  }
+
   Widget buildShelves() {
     final customizationProvider = Provider.of<FridgeCustomizationProvider>(context);
     int totalSlots = max(9, widget.inventory.length + 1);
@@ -563,6 +577,8 @@ class Fridge3DState extends State<Fridge3D>
       imageProvider = NetworkImage(item.imageUrl!);
     }
 
+    final freshnessColor = _getFreshnessColor(item);
+
     return GestureDetector(
       onTap: () {
         if (widget.onItemTap != null) {
@@ -587,9 +603,20 @@ class Fridge3DState extends State<Fridge3D>
               color: imageProvider == null
                   ? Colors.white10
                   : null,
+              border: Border.all(
+                color: freshnessColor.withOpacity(0.8),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: freshnessColor.withOpacity(0.35),
+                  blurRadius: 10,
+                  spreadRadius: 2,
+                )
+              ],
             ),
             child: imageProvider == null
-                ? const Icon(Icons.fastfood, color: Colors.white24)
+                ? Icon(Icons.fastfood, color: freshnessColor.withOpacity(0.5))
                 : null,
           ),
           if (item.expiryDate.isBefore(DateTime.now()))
@@ -688,9 +715,30 @@ class Fridge3DState extends State<Fridge3D>
                         "Inventory List",
                         style: TextStyle(color: textColor, fontSize: 20, fontWeight: FontWeight.bold),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.close, color: textColor),
-                        onPressed: () => setState(() => showInventoryList = false),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.fullscreen, color: textColor),
+                            tooltip: "Full Screen View",
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => InventoryListScreen(
+                                    inventory: widget.inventory,
+                                    onDelete: widget.onDelete,
+                                    onEdit: widget.onEdit,
+                                    onItemTap: widget.onItemTap,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.close, color: textColor),
+                            onPressed: () => setState(() => showInventoryList = false),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -723,8 +771,17 @@ class Fridge3DState extends State<Fridge3D>
                           decoration: BoxDecoration(
                             color: isLight ? Colors.white : Colors.white.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: isLight ? Colors.transparent : Colors.white.withOpacity(0.1)),
-                            boxShadow: [if (isLight) BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+                            border: Border.all(
+                              color: _getFreshnessColor(item).withOpacity(0.4),
+                              width: 1.2,
+                            ),
+                            boxShadow: [
+                              if (isLight) BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+                              BoxShadow(
+                                color: _getFreshnessColor(item).withOpacity(0.1),
+                                blurRadius: 6,
+                              )
+                            ]
                           ),
                           child: ListTile(
                             onTap: () {
@@ -991,15 +1048,21 @@ class Fridge3DState extends State<Fridge3D>
       );
     }
 
+    final freshnessColor = _getFreshnessColor(item);
+
     return Stack(
       children: [
         Container(
           width: 50, height: 50,
           decoration: BoxDecoration(
-            color: isLight ? Colors.teal.withOpacity(0.2) : Colors.tealAccent.withOpacity(0.2),
+            color: freshnessColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: freshnessColor.withOpacity(0.5), width: 1.5),
+            boxShadow: [
+              BoxShadow(color: freshnessColor.withOpacity(0.2), blurRadius: 4, spreadRadius: 1)
+            ],
           ),
-          child: Icon(Icons.inventory, color: isLight ? Colors.teal : Colors.tealAccent),
+          child: Icon(Icons.inventory, color: freshnessColor, size: 24),
         ),
         if (item.expiryDate.isBefore(DateTime.now()))
           Positioned(

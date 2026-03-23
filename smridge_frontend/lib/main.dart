@@ -10,7 +10,9 @@ import 'firebase_options.dart';
 import 'screens/splash_intro.dart';
 import 'screens/home_screen.dart';
 import 'services/secure_storage_service.dart';
+import 'services/api_service.dart'; // 🔹 Added
 import 'services/notification_service.dart';
+import 'services/socket_service.dart'; // 🔹 Added
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
 import 'config/app_themes.dart';
@@ -38,13 +40,21 @@ void main() async {
   // 🔥 Initialize Local Notifications
   await NotificationService().init();
 
+  // 🔥 Determine best backend (Local vs Render)
+  await ApiService.initializeBackend();
+
+  // 🔥 Initialize Sockets with the correct URL
+  SocketService.init();
+
   // 🔥 Handle Foreground Messages
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     print("Received foreground message: ${message.notification?.title}");
     if (message.notification != null) {
+      final color = message.data['color']; // 🔹 Extract color from data payload
       NotificationService().showNotification(
         message.notification!.title ?? "Smridge Alert",
         message.notification!.body ?? "",
+        colorHex: color,
       );
     }
   });
@@ -101,7 +111,14 @@ class SmridgeApp extends StatelessWidget {
     return MaterialApp(
       title: 'Smridge',
       debugShowCheckedModeBanner: false,
-      theme: finalTheme,
+      theme: finalTheme.copyWith(
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: ZoomPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
+        ),
+      ),
       home: const SplashIntro(),
     );
   }

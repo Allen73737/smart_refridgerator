@@ -5,11 +5,11 @@ class AppThemes {
   static final ThemeData defaultTheme = ThemeData(
     brightness: Brightness.dark,
     primaryColor: const Color(0xFF0F2027),
-    scaffoldBackgroundColor: const Color(0xFF071A2F), // Dark Space Blue
+    scaffoldBackgroundColor: const Color(0xFF050B12), // Smridge Midnight Blue (Matches Icon)
     colorScheme: const ColorScheme.dark(
       primary: Colors.tealAccent,
-      secondary: Color(0xFF0D2B4D), // Panel background
-      surface: Color(0xFF203A43),
+      secondary: Color(0xFF0D2137), // Darker Panel background
+      surface: Color(0xFF0A1F26),
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,

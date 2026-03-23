@@ -7,5 +7,6 @@ router.get("/", authMiddleware, notificationController.getNotifications);
 router.get("/history", authMiddleware, notificationController.getHistory);
 router.put("/:id/read", authMiddleware, notificationController.archive);
 router.delete("/clear", authMiddleware, notificationController.clearAll);
+router.delete("/history", authMiddleware, notificationController.clearHistory);
 
 module.exports = router;

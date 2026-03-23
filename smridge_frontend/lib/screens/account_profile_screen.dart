@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../utils/snackbar_utils.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/secure_storage_service.dart';
 
 class AccountProfileScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -32,12 +33,12 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     
     if (token != null && token.isNotEmpty && token != 'mock-token') {
       final profile = await ApiService.getProfile(token);
       if (profile != null) {
+        if (!mounted) return;
         setState(() {
           _nameController.text = profile['name'] ?? '';
           _emailController.text = profile['email'] ?? '';
@@ -50,16 +51,17 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
         return;
       }
     }
-    setState(() {
-        _nameController.text = 'Guest User';
-        _emailController.text = 'Please login';
-        isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+          _nameController.text = 'Guest User';
+          _emailController.text = 'Please login';
+          isLoading = false;
+      });
+    }
   }
 
   Future<void> _updateProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     
     if (token != null) {
       final success = await ApiService.updateProfile(_nameController.text, _emailController.text, token);
@@ -138,7 +140,7 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
               gradient: (isLight || isDark) ? null : const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF0F2027), Color(0xFF203A43)],
+                colors: [Color(0xFF050B12), Color(0xFF0D2137)],
               ),
             ),
           ),

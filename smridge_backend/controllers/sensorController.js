@@ -3,7 +3,9 @@ const User = require("../models/User");
 const NotificationModel = require("../models/Notification");
 const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
+const logActivity = require("../utils/activityLogger");
 const Threshold = require("../models/Threshold");
+const Item = require("../models/Item");
 const FridgeStatus = require("../models/FridgeStatus");
 
 // Threshold Configurations
@@ -12,10 +14,7 @@ const GAS_THRESHOLD = 300;
 const WEIGHT_DROP_THRESHOLD = 100; // grams
 
 const { getSensorScore } = require("../utils/freshnessUtils");
-
-// 🔹 Real-time state
-let lastRealSensorData = null;
-let lastRealDataReceivedAt = 0;
+const sensorService = require("../utils/sensorService");
 
 // 🔹 In-memory throttle to prevent database hammering (Map of userId -> timestamp)
 const lastSyncCache = new Map();
@@ -31,9 +30,47 @@ exports.receiveSensorData = async (req, res) => {
         const syncKey = "primary_fridge"; 
         const now = Date.now();
 
-        // 🔹 Save state for fallback simulator
-        lastRealSensorData = { temperature, humidity, gasLevel, weight, doorStatus };
-        lastRealDataReceivedAt = now;
+        // 🔹 Save state for fallback simulator and AI
+        const previousState = sensorService.updateLastKnown({ temperature, humidity, gasLevel, weight, doorStatus });
+
+        // 🟢 LOG DOOR ACTIVITY IF TRANSITIONED
+        if (previousState && previousState.doorStatus !== doorStatus) {
+            const users = await User.find().limit(1).lean();
+            if (users.length > 0) {
+                const action = doorStatus === 'open' ? 'DOOR_OPEN' : 'DOOR_CLOSE';
+                await logActivity(users[0]._id, action, 'user', `The fridge door was ${doorStatus === 'open' ? 'opened' : 'closed'}.`);
+            }
+        }
+
+        // ⚖️ INTELLIGENT WEIGHT CHANGE DETECTION
+        if (previousState && Math.abs(previousState.weight - weight) > 20) {
+            const diff = weight - previousState.weight;
+            const users = await User.find().limit(1).lean();
+            if (users.length > 0) {
+                const primaryUser = users[0];
+                const action = diff > 0 ? "ITEM_ADDED" : "ITEM_REMOVED";
+                const direction = diff > 0 ? "increased" : "decreased";
+                const absDiff = Math.abs(diff).toFixed(1);
+
+                // 🔹 Try to find an item to update quantity
+                const items = await Item.find({ userId: primaryUser._id }).sort({ updatedAt: -1 });
+                let matchedItem = items[0]; // Simple fallback to last updated
+
+                if (matchedItem) {
+                    const unitWeight = 50; // Approx weight of 1 unit (e.g. egg)
+                    const qtyChange = Math.round(diff / unitWeight);
+                    if (qtyChange !== 0) {
+                        matchedItem.quantity = Math.max(0, matchedItem.quantity + qtyChange);
+                        await matchedItem.save();
+                        socketManager.emitToUser(primaryUser._id.toString(), "inventory_update", { action: "update", item: matchedItem });
+                    }
+
+                    const message = `Weight of ${matchedItem.name} ${direction} by ${absDiff}g. Quantity is likely ${diff > 0 ? 'increased' : 'decreased'} to ${matchedItem.quantity}.`;
+                    await createAndSendAlert(primaryUser, "weight", "Weight Change Detected", message, diff > 0 ? "#00FFAB" : "#FF007A");
+                    await logActivity(primaryUser._id, "WEIGHT_INTEL", "user", message);
+                }
+            }
+        }
 
         // --- UNIFIED FRESHNESS CALCULATION ---
         const sensorDetails = getSensorScore({ temperature, humidity, gasLevel, weight, doorStatus });
@@ -114,22 +151,20 @@ exports.receiveSensorData = async (req, res) => {
             const G_LIMIT = adminThresholds ? adminThresholds.gasLimitMax : GAS_THRESHOLD;
 
             if (temperature > T_LIMIT) {
-                createAndSendAlert(primaryUser, "temperature", "High Temperature Alert", `Fridge temperature is too high: ${temperature} Celsius`);
+                createAndSendAlert(primaryUser, "temperature", "High Temperature Alert", `Fridge temperature is too high: ${temperature}°C`, "#FF0000");
             }
             if (gasLevel > G_LIMIT) {
-                createAndSendAlert(primaryUser, "spoilage", "Spoilage Detected", `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`);
+                createAndSendAlert(primaryUser, "spoilage", "Spoilage Detected", `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`, "#FF5722");
+            }
+            if (humidity > 80) {
+                createAndSendAlert(primaryUser, "humidity", "High Humidity Alert", `Humidity is too high: ${humidity}%.`, "#2196F3");
             }
             
-            // 🔹 Optimized Weight/Door checks (Only if user has history)
-            // Note: These remain somewhat slow but are now running after parallel fetches
-            SensorData.findOne({ doorStatus: 'closed' }).sort({ timestamp: -1 }).lean().then(lastClosed => {
-                if (doorStatus === 'open' && lastClosed && (new Date() - lastClosed.timestamp > 60000)) {
-                    createAndSendAlert(primaryUser, "door", "Door Left Open!", "The door has been open for over 60 seconds.");
-                }
-            });
+            // 🔹 Optimized Door checks
+            if (doorStatus === 'open' && (!previousState || previousState.doorStatus === 'closed')) {
+                 // Reset door timer or handle specifically if needed
+            }
         }
-
-        // (Old freshness calc and socket emit removed since they are now at the top of the function)
 
     } catch (error) {
         console.error("ESP32 Sensor Error:", error);
@@ -138,13 +173,13 @@ exports.receiveSensorData = async (req, res) => {
 };
 
 // Helper for Alerts
-async function createAndSendAlert(user, type, title, message) {
+async function createAndSendAlert(user, type, title, message, color = "#FF0000") {
     try {
         const recentAlert = await NotificationModel.findOne({
             userId: user._id,
             type,
             title,
-            createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) }
+            createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Throttled to 5 mins
         }).lean();
 
         if (recentAlert) return;
@@ -153,7 +188,8 @@ async function createAndSendAlert(user, type, title, message) {
             userId: user._id,
             type,
             title,
-            message
+            message,
+            color // 🔹 Store color for frontend
         });
 
         socketManager.emitEvent("notification_update", { action: "new", notification });
@@ -165,36 +201,3 @@ async function createAndSendAlert(user, type, title, message) {
         console.error("Alert error:", err);
     }
 }
-
-// 🕒 Fallback Drift Simulator (Runs every 1 second)
-setInterval(() => {
-    const now = Date.now();
-    // Activate fallback if ESP32 offline for > 5 seconds
-    if (lastRealSensorData && (now - lastRealDataReceivedAt > 5000)) {
-        
-        // Apply slight randomized drift mimicking real hardware
-        const dxTemp = (Math.random() - 0.5) * 0.2; 
-        const dxHum = (Math.random() - 0.5) * 2.0;
-        const dxFres = (Math.random() - 0.5) * 1.0;
-        
-        // Clamp bounds securely
-        lastRealSensorData.temperature = Math.max(0, Math.min(40, lastRealSensorData.temperature + dxTemp));
-        lastRealSensorData.humidity = Math.max(0, Math.min(100, lastRealSensorData.humidity + dxHum));
-        lastRealSensorData.gasLevel = Math.max(0, lastRealSensorData.gasLevel + dxFres);
-        
-        const sensorDetails = getSensorScore(lastRealSensorData);
-        const calculatedFreshness = Math.round((sensorDetails.total / 60) * 100);
-
-        let status = "Fresh";
-        if (calculatedFreshness < 60) status = "Caution";
-        if (calculatedFreshness < 30) status = "Spoiled";
-
-        // Emit simulated fallback socket data seamlessly
-        socketManager.emitEvent("sensor_data", {
-            ...lastRealSensorData,
-            calculatedFreshness,
-            status,
-            isReal: false
-        });
-    }
-}, 1000);

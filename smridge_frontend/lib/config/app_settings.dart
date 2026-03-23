@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
 
 class AppSettings {
   static double temperatureThreshold = 10;
@@ -18,7 +19,7 @@ class AppSettings {
   static Future<void> fetchAdminThresholds() async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.127.211.225:5001/api/settings/admin-thresholds'),
+        Uri.parse('${ApiService.baseDomain}/api/settings/admin-thresholds'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {

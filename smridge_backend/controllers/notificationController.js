@@ -81,3 +81,16 @@ exports.clearAll = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+// 🟢 Clear all archived notifications (History wipe)
+exports.clearHistory = async (req, res) => {
+    try {
+        await NotificationModel.deleteMany({
+            userId: req.user.id,
+            isArchived: true
+        });
+        res.json({ message: "Notification history cleared permanently" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

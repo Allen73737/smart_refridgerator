@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import 'notification_history_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/secure_storage_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -28,8 +29,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _fetchNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await SecureStorageService.getToken();
     
     if (token != null) {
       final data = await ApiService.getNotifications(token);
@@ -110,8 +110,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           IconButton(
             icon: Icon(Icons.done_all, color: textColor),
             onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              final token = prefs.getString('token');
+              final token = await SecureStorageService.getToken();
               if (token != null) {
                 final success = await ApiService.clearNotifications(token); // clearAll in backend archives them
                 if (success) _fetchNotifications();
@@ -132,8 +131,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           if (notifications.isNotEmpty)
             TextButton(
               onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                final token = prefs.getString('token');
+                final token = await SecureStorageService.getToken();
                 if (token != null) {
                   // 🔹 Android-Style Sequential Slide-Left Animation
                   final itemsToClear = List<Map<String, dynamic>>.from(notifications);
@@ -203,8 +201,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         notifications.removeAt(index);
                       });
 
-                      final prefs = await SharedPreferences.getInstance();
-                      final token = prefs.getString('token');
+                      final token = await SecureStorageService.getToken();
                       if (token != null) {
                         // 2. Mark as archived in background
                         await ApiService.markNotificationRead(dismissedId, token);
@@ -270,8 +267,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               trailing: !isRead ? IconButton(
                                 icon: Icon(Icons.done_all, color: color, size: 20),
                                 onPressed: () async {
-                                  final prefs = await SharedPreferences.getInstance();
-                                  final token = prefs.getString('token');
+                                  final token = await SecureStorageService.getToken();
                                   if (token != null) {
                                     await ApiService.markNotificationRead(notif['_id'], token);
                                     _fetchNotifications();
