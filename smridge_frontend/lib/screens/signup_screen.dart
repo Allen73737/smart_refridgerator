@@ -39,22 +39,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => isLoading = true);
     
-    final success = await ApiService.signup(nameController.text, emailController.text, passwordController.text);
+    final data = await ApiService.signup(nameController.text, emailController.text, passwordController.text);
 
     if (!mounted) return;
     setState(() => isLoading = false);
 
-    if (success) {
+    if (data != null) {
       SnackbarUtils.showSuccess(context, "Registration Successful! Logging in...");
       
       // Auto-login after signup
       setState(() => isLoading = true);
-      final token = await ApiService.login(emailController.text, passwordController.text);
+      final loginData = await ApiService.login(emailController.text, passwordController.text);
       if (!mounted) return;
       setState(() => isLoading = false);
 
-      if (token != null) {
+      if (loginData != null) {
+        final token = loginData['token'];
+        final userId = loginData['user']['_id'];
         await SecureStorageService.saveToken(token);
+        await SecureStorageService.saveUserId(userId);
 
         Navigator.pushAndRemoveUntil(
           context,

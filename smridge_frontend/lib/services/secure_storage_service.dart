@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SecureStorageService {
   static final _storage = const FlutterSecureStorage();
   static const _tokenKey = 'jwt_token';
+  static const _userIdKey = 'user_id';
   static const _biometricKey = 'biometric_enabled';
 
   static Future<void> saveToken(String token) async {
@@ -12,6 +13,21 @@ class SecureStorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('token', token);
     await prefs.setBool('isLoggedIn', true);
+  }
+
+  static Future<void> saveUserId(String userId) async {
+    await _storage.write(key: _userIdKey, value: userId);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userId', userId);
+  }
+
+  static Future<String?> getUserId() async {
+    String? id = await _storage.read(key: _userIdKey);
+    if (id == null) {
+      final prefs = await SharedPreferences.getInstance();
+      id = prefs.getString('userId');
+    }
+    return id;
   }
 
   static Future<String?> getToken() async {

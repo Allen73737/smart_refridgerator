@@ -82,21 +82,21 @@ class ApiService {
     await initializeBackend();
   }
 
-  static Future<bool> signup(String name, String email, String password) async {
+  static Future<Map<String, dynamic>?> signup(String name, String email, String password) async {
     try {
       final response = await http.post(
         Uri.parse('$authUrl/signup'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'name': name, 'email': email, 'password': password}),
       );
-      return response.statusCode == 201;
+      if (response.statusCode == 201) return jsonDecode(response.body);
     } catch (e) {
       print("Signup Error: $e");
     }
-    return false;
+    return null;
   }
 
-  static Future<String?> login(String email, String password) async {
+  static Future<Map<String, dynamic>?> login(String email, String password) async {
     // 🔥 Always re-detect backend on login. Ensures local is used if now reachable,
     // even if the app started before the firewall was open.
     await initializeBackend();
@@ -109,8 +109,7 @@ class ApiService {
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['token'];
+        return jsonDecode(response.body);
       } else {
         final error = jsonDecode(response.body);
         throw Exception(error['msg'] ?? "Login failed");

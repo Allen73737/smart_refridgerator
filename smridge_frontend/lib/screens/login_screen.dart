@@ -33,13 +33,16 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => isLoading = true);
     
     try {
-      final token = await ApiService.login(_emailController.text, _passwordController.text);
+      final data = await ApiService.login(_emailController.text, _passwordController.text);
       
       if (!mounted) return;
       setState(() => isLoading = false);
 
-      if (token != null) {
+      if (data != null) {
+        final token = data['token'];
+        final userId = data['user']['_id'];
         await SecureStorageService.saveToken(token);
+        await SecureStorageService.saveUserId(userId);
 
         // 🔹 Check if user has a device
         final devices = await ApiService.getUserDevices(token);
