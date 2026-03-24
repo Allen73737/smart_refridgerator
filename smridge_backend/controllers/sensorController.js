@@ -195,7 +195,7 @@ async function createAndSendAlert(user, type, title, message, color = "#FF0000")
         socketManager.emitEvent("notification_update", { action: "new", notification });
 
         if (user.fcmToken) {
-            sendPushNotification(user.fcmToken, title, message).catch(err => console.error("Push error:", err));
+            sendPushNotification(user.fcmToken, `Smridge: ${title}`, message, { type, color }).catch(err => console.error("Push error:", err));
         }
     } catch (err) {
         console.error("Alert error:", err);

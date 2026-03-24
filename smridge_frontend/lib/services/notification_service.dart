@@ -98,8 +98,8 @@ class NotificationService {
   @pragma('vm:entry-point')
   static Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     print("🚀 Handling background message: ${message.messageId}");
-    // Note: Local notification might not show here unless you manually call the plugin
-    // because this runs in a separate isolate.
+    // Note: On Android, if the 'notification' property is present in the payload, 
+    // the system naturally displays it. For 'data' only messages, we would handle manually.
   }
 
   Future<void> showNotification(String title, String body, {BuildContext? context, String? colorHex}) async {

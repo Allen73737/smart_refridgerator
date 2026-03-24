@@ -41,7 +41,7 @@ const logActivity = async (userId, action, role = 'user', details = '') => {
                     type: action.includes('ITEM') ? 'INVENTORY' : 'SYSTEM'
                 });
 
-                await sendPushNotification(user.fcmToken, `Smridge: ${title}`, body);
+                await sendPushNotification(user.fcmToken, `Smridge: ${title}`, body, { action });
             }
         }
     } catch (error) {

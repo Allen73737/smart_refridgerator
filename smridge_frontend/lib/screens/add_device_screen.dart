@@ -2,12 +2,13 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../widgets/premium_setup_visualizer.dart';
 import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
 import 'home_screen.dart';
@@ -389,38 +390,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   Widget _buildDetection() {
     return _buildGlassCard(
       children: [
-        SizedBox(
-          height: 160,
-          width: 160,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Radar Rings
-              ...List.generate(3, (index) => 
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.tealAccent.withOpacity(0.2), width: 2),
-                  ),
-                ).animate(onPlay: (c) => c.repeat()).scale(
-                  duration: 2.seconds,
-                  delay: (index * 600).ms,
-                  begin: const Offset(0.2, 0.2),
-                  end: const Offset(1.2, 1.2),
-                ).fadeOut(duration: 2.seconds)
-              ),
-              // Center Icon
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF1B2C33),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.wifi_find, color: Colors.tealAccent, size: 40),
-              ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
-            ],
-          ),
-        ),
+        const PremiumSetupVisualizer(),
         const SizedBox(height: 32),
         Text(
           "Searching for device...",

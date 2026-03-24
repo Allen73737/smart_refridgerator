@@ -29,7 +29,7 @@
             android:name=".MainActivityWarning"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/launcher_icon"
+            android:icon="@mipmap/launcher_icon_warning"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -41,7 +41,7 @@
             android:name=".MainActivityDanger"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/launcher_icon"
+            android:icon="@mipmap/launcher_icon_danger"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
