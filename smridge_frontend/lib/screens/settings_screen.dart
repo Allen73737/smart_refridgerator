@@ -12,6 +12,8 @@ import '../providers/theme_provider.dart';
 import 'advanced_settings_screen.dart';
 import 'about_screen.dart';
 import 'notification_history_screen.dart';
+import '../services/secure_storage_service.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -213,6 +215,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ],
                           ),
                         ),
+                        
+                        const SizedBox(height: 30),
+                        
+                        _buildSettingsTile(
+                          Icons.logout, 
+                          "Logout", 
+                          isLight, 
+                          onTap: () => _showLogoutDialog(),
+                          isDestructive: true,
+                        ),
                       ],
                     ),
                   ),
@@ -281,10 +293,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSettingsTile(IconData icon, String title, bool isLight, {VoidCallback? onTap}) {
-    Color textColor = isLight ? Colors.black87 : Colors.white;
-    Color iconColor = isLight ? Colors.teal : Colors.tealAccent;
-    Color bgColor = isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1);
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2A33),
+        title: const Text("Logout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text("Are you sure you want to logout from Smridge?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () async {
+              await SecureStorageService.clearToken();
+              await SecureStorageService.clearUserId();
+              if (mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context, 
+                  MaterialPageRoute(builder: (_) => const LoginScreen()), 
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text("Logout"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTile(IconData icon, String title, bool isLight, {VoidCallback? onTap, bool isDestructive = false}) {
+    Color textColor = isDestructive ? Colors.redAccent : (isLight ? Colors.black87 : Colors.white);
+    Color iconColor = isDestructive ? Colors.redAccent : (isLight ? Colors.teal : Colors.tealAccent);
+    Color bgColor = isDestructive ? Colors.redAccent.withOpacity(0.1) : (isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1));
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 0),
@@ -297,7 +341,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Icon(icon, color: iconColor, size: 22),
       ),
       title: Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-      trailing: Icon(Icons.arrow_forward_ios, color: isLight ? Colors.black54 : Colors.white54, size: 16),
+      trailing: isDestructive ? null : Icon(Icons.arrow_forward_ios, color: isLight ? Colors.black54 : Colors.white54, size: 16),
       onTap: onTap,
     );
   }

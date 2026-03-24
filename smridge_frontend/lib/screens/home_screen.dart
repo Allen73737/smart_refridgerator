@@ -62,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AddFlowState _addFlowState = AddFlowState.choice;
   InventoryItem? _scannedItem;
+  List<InventoryItem> inventory = [];
+  bool _isInventoryLoading = true; 
   int? _editItemIndex;
   int unreadNotifications = 0;
   Timer? _expiryCheckTimer; // 🔹 Added for periodic check
@@ -252,6 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           inventory = items;
+          _isInventoryLoading = false; 
         });
         
         // 🕒 Schedule Background Notifications for Expiry
@@ -511,6 +514,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildVerticalInventoryList() {
+    if (_isInventoryLoading) {
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: 5,
+        itemBuilder: (context, index) => Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          height: 80,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1.5.seconds, color: Colors.tealAccent.withOpacity(0.1)),
+      );
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 0),
       itemCount: inventory.length,

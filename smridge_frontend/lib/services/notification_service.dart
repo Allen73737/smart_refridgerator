@@ -222,12 +222,18 @@ class NotificationService {
     );
   }
 
-  // ⏰ Schedule a custom user reminder
+  // 🚀 Schedule a custom user reminder with Timer support
   Future<void> scheduleLocalReminder(int id, String itemName, DateTime scheduledDate) async {
     final now = DateTime.now();
     final localScheduled = scheduledDate.isUtc ? scheduledDate.toLocal() : scheduledDate;
 
     if (localScheduled.isBefore(now)) return;
+
+    // 🔹 If the reminder is within 1 hour, show a real-time timer notification in the shade
+    final diff = localScheduled.difference(now);
+    if (diff.inHours < 1) {
+      await showReminderTimerNotification(id, itemName, localScheduled);
+    }
 
     final androidDetails = AndroidNotificationDetails(
       'custom_reminders_channel',
@@ -237,7 +243,7 @@ class NotificationService {
       icon: 'ic_notif',
       color: const Color(0xFFFFAB00), 
       styleInformation: BigTextStyleInformation(
-        "🔔 **REMINDER**: It's time to check on your **$itemName**! 🥗\n\nYou set this reminder to stay on top of your fridge inventory. Open Smridge to manage your items.",
+        "🔔 **REMINDER**: It's time to check on your **$itemName**! 🥗\n\nYou set this reminder to stay on top of your fridge inventory.",
         contentTitle: "⏰ Smridge Reminder: $itemName",
         summaryText: "Smridge Personal Protocol",
         htmlFormatContent: true,
@@ -249,7 +255,7 @@ class NotificationService {
     final details = NotificationDetails(android: androidDetails);
 
     await _plugin.zonedSchedule(
-      id + 20000, // 🔹 Offset ID to avoid collision with expiry (0-10000) or timers (hashcodes)
+      id + 20000, 
       "⏰ Reminder: $itemName",
       "Smridge Reminder: Check your $itemName now!",
       tz.TZDateTime.from(localScheduled, tz.local),
@@ -259,7 +265,39 @@ class NotificationService {
     );
   }
 
-  // 🗑️ Clear all scheduled notifications (e.g. before re-scheduling)
+  // ⏲️ Ongoing Timer Notification for Reminders
+  Future<void> showReminderTimerNotification(int id, String itemName, DateTime targetTime) async {
+    final now = DateTime.now();
+    final diff = targetTime.difference(now);
+    if (diff.isNegative) return;
+
+    final androidDetails = AndroidNotificationDetails(
+      'reminder_timer_channel',
+      'Active Reminders',
+      importance: Importance.low, // Lower importance so it doesn't keep buzzing
+      priority: Priority.low,
+      ongoing: true,
+      showWhen: true,
+      usesChronometer: true,
+      when: targetTime.millisecondsSinceEpoch,
+      chronometerCountDown: true,
+      icon: 'ic_notif',
+      color: const Color(0xFFFFAB00),
+      category: AndroidNotificationCategory.status,
+      visibility: NotificationVisibility.public,
+    );
+
+    final details = NotificationDetails(android: androidDetails);
+    
+    await _plugin.show(
+      id + 30000, 
+      "⏳ Reminder Timer: $itemName",
+      "Due in approximately ${diff.inMinutes} minutes",
+      details,
+    );
+  }
+
+  // 🗑️ Clear all scheduled notifications
   Future<void> cancelAllScheduled() async {
     await _plugin.cancelAll();
   }

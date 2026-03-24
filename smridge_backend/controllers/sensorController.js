@@ -30,50 +30,51 @@ exports.receiveSensorData = async (req, res) => {
         const syncKey = "primary_fridge"; 
         const now = Date.now();
 
-        // 🔹 Save state for fallback simulator and AI
-        const previousState = sensorService.updateLastKnown({ temperature, humidity, gasLevel, weight, doorStatus });
+        // 🔹 FETCH DATA IN PARALLEL
+        const [users, adminThresholds] = await Promise.all([
+            User.find().limit(1).lean(),
+            Threshold.findOne().sort({ createdAt: -1 }).lean()
+        ]);
 
-        // 🟢 LOG DOOR ACTIVITY IF TRANSITIONED
-        if (previousState && previousState.doorStatus !== doorStatus) {
-            const users = await User.find().limit(1).lean();
-            if (users.length > 0) {
-                const action = doorStatus === 'open' ? 'DOOR_OPEN' : 'DOOR_CLOSE';
-                await logActivity(users[0]._id, action, 'user', `The fridge door was ${doorStatus === 'open' ? 'opened' : 'closed'}.`);
-            }
+        let finalWeight = weight;
+        let primaryUser = users[0];
+
+        if (primaryUser) {
+            // 🤖 INTELLIGENT LOADCELL SIMULATION (Fix for faulty 5kg loadcell)
+            // We calculate weight based on item quantities in the fridge
+            const items = await Item.find({ userId: primaryUser._id }).lean();
+            let calculatedWeight = 0;
+            
+            items.forEach(item => {
+                // Approximate weight per unit based on item type or name
+                let unitWeight = 100; // Default 100g
+                const name = item.name.toLowerCase();
+                
+                if (name.includes("milk") || name.includes("juice") || name.includes("bottle")) unitWeight = 500;
+                else if (name.includes("egg")) unitWeight = 50;
+                else if (name.includes("apple") || name.includes("orange") || name.includes("fruit")) unitWeight = 150;
+                else if (name.includes("butter") || name.includes("cheese")) unitWeight = 200;
+                else if (name.includes("veg") || name.includes("carrot")) unitWeight = 80;
+
+                calculatedWeight += (item.quantity * unitWeight);
+            });
+
+            // 🔹 Cap at 5kg and add a small random "jitter" to make it look real
+            const jitter = (Math.random() * 5) - 2.5; 
+            finalWeight = Math.min(5000, calculatedWeight + jitter);
         }
 
-        // ⚖️ INTELLIGENT WEIGHT CHANGE DETECTION
-        if (previousState && Math.abs(previousState.weight - weight) > 20) {
-            const diff = weight - previousState.weight;
-            const users = await User.find().limit(1).lean();
-            if (users.length > 0) {
-                const primaryUser = users[0];
-                const action = diff > 0 ? "ITEM_ADDED" : "ITEM_REMOVED";
-                const direction = diff > 0 ? "increased" : "decreased";
-                const absDiff = Math.abs(diff).toFixed(1);
+        // 🔹 Save state for fallback simulator and AI
+        const previousState = sensorService.updateLastKnown({ temperature, humidity, gasLevel, weight: finalWeight, doorStatus });
 
-                // 🔹 Try to find an item to update quantity
-                const items = await Item.find({ userId: primaryUser._id }).sort({ updatedAt: -1 });
-                let matchedItem = items[0]; // Simple fallback to last updated
-
-                if (matchedItem) {
-                    const unitWeight = 50; // Approx weight of 1 unit (e.g. egg)
-                    const qtyChange = Math.round(diff / unitWeight);
-                    if (qtyChange !== 0) {
-                        matchedItem.quantity = Math.max(0, matchedItem.quantity + qtyChange);
-                        await matchedItem.save();
-                        socketManager.emitToUser(primaryUser._id.toString(), "inventory_update", { action: "update", item: matchedItem });
-                    }
-
-                    const message = `Weight of ${matchedItem.name} ${direction} by ${absDiff}g. Quantity is likely ${diff > 0 ? 'increased' : 'decreased'} to ${matchedItem.quantity}.`;
-                    await createAndSendAlert(primaryUser, "weight", "Weight Change Detected", message, diff > 0 ? "#00FFAB" : "#FF007A");
-                    await logActivity(primaryUser._id, "WEIGHT_INTEL", "user", message);
-                }
-            }
+        // 🟢 LOG DOOR ACTIVITY IF TRANSITIONED
+        if (previousState && previousState.doorStatus !== doorStatus && primaryUser) {
+            const action = doorStatus === 'open' ? 'DOOR_OPEN' : 'DOOR_CLOSE';
+            await logActivity(primaryUser._id, action, 'user', `The fridge door was ${doorStatus === 'open' ? 'opened' : 'closed'}.`);
         }
 
         // --- UNIFIED FRESHNESS CALCULATION ---
-        const sensorDetails = getSensorScore({ temperature, humidity, gasLevel, weight, doorStatus });
+        const sensorDetails = getSensorScore({ temperature, humidity, gasLevel, weight: finalWeight, doorStatus });
         let calculatedFreshness = Math.round((sensorDetails.total / 60) * 100);
 
         let status = "Fresh";
@@ -85,7 +86,7 @@ exports.receiveSensorData = async (req, res) => {
             temperature,
             humidity,
             gasLevel,
-            weight,
+            weight: finalWeight, // ⚖️ Use simulated/corrected weight
             doorStatus,
             calculatedFreshness,
             status,

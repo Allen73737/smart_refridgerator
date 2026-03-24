@@ -502,7 +502,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         final act = activities[index];
         final timestamp = DateTime.parse(act['timestamp']);
         final dayStr = "${timestamp.day}/${timestamp.month}/${timestamp.year}";
-        final timeStr = "${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}";
+        final timeStr = "${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}";
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),

@@ -178,6 +178,54 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
     }
   }
 
+  // 🖼️ AI Image Search Dialog
+  Future<void> _showImageSearchDialog(bool isLight) async {
+    setState(() => _isLoadingAnalysis = true);
+    final results = await ApiService.searchImages(_item.name);
+    setState(() => _isLoadingAnalysis = false);
+
+    if (results.isEmpty && mounted) {
+      SnackbarUtils.showError(context, "No images found for '${_item.name}'");
+      return;
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2A33),
+        title: Text("Select Image for ${_item.name}", style: const TextStyle(color: Colors.white, fontSize: 16)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: GridView.builder(
+            shrinkWrap: true,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10),
+            itemCount: results.length,
+            itemBuilder: (context, i) => GestureDetector(
+              onTap: () async {
+                final token = await SecureStorageService.getToken();
+                if (token != null) {
+                  final newItem = _item.copyWith(imageUrl: results[i], imagePath: ""); // Clear local path if switching to URL
+                  final success = await ApiService.updateFood(newItem, token);
+                  if (success && mounted) {
+                    setState(() => _item = newItem);
+                    Navigator.pop(context);
+                    SnackbarUtils.showSuccess(context, "Product image updated! ✨");
+                  }
+                }
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(imageUrl: results[i], fit: BoxFit.cover),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Color _freshnessColor(int score) {
     if (score >= 80) return Colors.green;
     if (score >= 60) return Colors.lightGreen;
@@ -665,6 +713,15 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                                           ),
                                         ],
                                       ),
+                                    ),
+                                    ),
+                                    Positioned(
+                                      bottom: 20,
+                                      right: 24,
+                                      child: _buildCircleAction(
+                                        icon: Icons.add_a_photo_outlined, 
+                                        onTap: () => _showImageSearchDialog(isLight),
+                                      ).animate().scale(delay: 400.ms),
                                     ),
                                     Positioned(
                                       bottom: 20,

@@ -54,17 +54,18 @@ class _SplashIntroState extends State<SplashIntro>
   }
 
   Future<void> _startSequence() async {
-    // Start slightly faster since we removed the 2s door constraint
-    await Future.delayed(const Duration(milliseconds: 300));
+    // 🚀 PRE-WARM: Initialize backend and sockets IMMEDIATELY to eliminate lag
+    unawaited(ApiService.initializeBackend());
+    unawaited(SocketService.init());
+
+    await Future.delayed(const Duration(milliseconds: 200));
 
     AudioService.playLogoReveal();
     _logoController.forward();
 
-    await Future.delayed(const Duration(milliseconds: 1500));
+    await Future.delayed(const Duration(milliseconds: 1000));
 
     await _startTyping();
-
-    await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) return;
 
@@ -81,13 +82,7 @@ class _SplashIntroState extends State<SplashIntro>
           FadeSlidePageRoute(page: const LoginScreen()),
         );
       } else {
-        // 🔥 Re-detect backend BEFORE auto-login to HomeScreen
-        // This ensures local backend is used if it's now reachable
-        await ApiService.initializeBackend();
-        print('🎯 [SplashIntro] Auto-login using: ${ApiService.baseDomain}');
-        SocketService.init(); // Re-init socket with the correct URL
-        
-        // 🔹 Check if user has a device
+        // 🔹 Background check for device while typing finished
         final devices = await ApiService.getUserDevices(token);
         final bool hasDevice = devices.isNotEmpty;
 
@@ -102,8 +97,8 @@ class _SplashIntroState extends State<SplashIntro>
     } else {
       // Not logged in, go to login page
       Navigator.pushReplacement(
-        context,
-        FadeSlidePageRoute(page: const LoginScreen()),
+          context,
+          FadeSlidePageRoute(page: const LoginScreen()),
       );
     }
   }
