@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'signup_screen.dart';
 import 'home_screen.dart';
+import 'add_device_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
@@ -40,11 +41,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (token != null) {
         await SecureStorageService.saveToken(token);
 
+        // 🔹 Check if user has a device
+        final devices = await ApiService.getUserDevices(token);
+        final bool hasDevice = devices.isNotEmpty;
+
+        if (!mounted) return;
+
         Navigator.pushReplacement(
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 800),
-            pageBuilder: (_, __, ___) => const HomeScreen(),
+            pageBuilder: (_, __, ___) => hasDevice ? const HomeScreen() : const AddDeviceScreen(),
             transitionsBuilder: (_, animation, __, child) {
               return FadeTransition(opacity: animation, child: child);
             },

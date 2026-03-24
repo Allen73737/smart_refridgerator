@@ -52,6 +52,7 @@ const activityRoutes = require("./routes/activityRoutes");
 app.use("/api/activities", activityRoutes);
 app.use("/api/sensors", require("./routes/sensorRoutes"));
 app.use("/api/settings", require("./routes/settingsRoutes"));
+app.use("/api/device", require("./routes/deviceRoutes"));
 app.use("/api/ai", require("./routes/aiRoutes"));
 app.use("/uploads", express.static("uploads"));
 

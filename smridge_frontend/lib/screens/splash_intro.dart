@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart'; // Added for .animate()
 import 'package:google_fonts/google_fonts.dart'; // Added for GoogleFonts
 import 'login_screen.dart';
 import 'home_screen.dart';
+import 'add_device_screen.dart';
 import '../core/page_transitions.dart';
 import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
@@ -85,10 +86,17 @@ class _SplashIntroState extends State<SplashIntro>
         await ApiService.initializeBackend();
         print('🎯 [SplashIntro] Auto-login using: ${ApiService.baseDomain}');
         SocketService.init(); // Re-init socket with the correct URL
+        
+        // 🔹 Check if user has a device
+        final devices = await ApiService.getUserDevices(token);
+        final bool hasDevice = devices.isNotEmpty;
+
+        if (!mounted) return;
+
         // Direct to home if logged in and biometrics not required
         Navigator.pushReplacement(
           context,
-          FadeSlidePageRoute(page: const HomeScreen()),
+          FadeSlidePageRoute(page: hasDevice ? const HomeScreen() : const AddDeviceScreen()),
         );
       }
     } else {

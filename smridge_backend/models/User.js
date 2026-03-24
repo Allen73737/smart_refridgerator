@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   role:         { type: String, enum: ['user', 'admin'], default: 'user' },
   isBlocked:    { type: Boolean, default: false },
   lastActive:   { type: Date, default: Date.now },
+  deviceId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Device', default: null },
 }, { timestamps: true });
 
 // Auto-hash password before saving (SINGLE source of truth — no manual hashing in controllers)

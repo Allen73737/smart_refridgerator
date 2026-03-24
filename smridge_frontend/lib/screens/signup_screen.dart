@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
+import 'add_device_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
@@ -59,7 +60,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           context,
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 800),
-            pageBuilder: (_, __, ___) => const HomeScreen(),
+            pageBuilder: (_, __, ___) => const AddDeviceScreen(),
             transitionsBuilder: (_, animation, __, child) {
               return FadeTransition(opacity: animation, child: child);
             },

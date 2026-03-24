@@ -24,6 +24,7 @@ class ApiService {
   static String get authUrl => '${currentBaseUrl.value}/api/auth';
   static String get userUrl => '${currentBaseUrl.value}/api/user';
   static String get baseUrl => '${currentBaseUrl.value}/api/items';
+  static String get deviceUrl => '${currentBaseUrl.value}/api/device';
 
   /// 🔹 Initialize and determine the best backend to use
   static Future<void> initializeBackend() async {
@@ -502,5 +503,45 @@ class ApiService {
       print("Error clearing notification history: $e");
     }
     return false;
+  }
+
+  // 🔹 DEVICE MANAGEMENT
+  
+  static Future<List<dynamic>> getUserDevices(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse(deviceUrl),
+        headers: {'x-auth-token': token},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("Get Devices Error: $e");
+    }
+    return [];
+  }
+
+  static Future<bool> connectToEsp(String ssid, String password) async {
+    try {
+      // 🟢 Local endpoint on ESP32 Access Point
+      final url = Uri.parse('http://192.168.4.1/connect');
+      print("📡 [ESP32] Sending WiFi credentials to: $url");
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'ssid': ssid,
+          'password': password,
+          // We can also pass the userId if the ESP32 needs to register it
+          'userId': await SecureStorageService.getUserId() ?? "", 
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      print("📋 [ESP32] Response [${response.statusCode}]: ${response.body}");
+      return response.statusCode == 200;
+    } catch (e) {
+      print("❌ ESP32 Connect Error: $e");
+      return false;
+    }
   }
 }
