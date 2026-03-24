@@ -278,7 +278,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           ),
         ),
       ),
-    ).animate().fadeIn(duration: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.backOut);
+    ).animate().fadeIn(duration: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack);
   }
 
   Widget _buildWelcome() {
@@ -359,7 +359,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               ),
             ),
           ),
-        ).animate().fadeIn(delay: 1.seconds).scale(begin: const Offset(0.8, 0.8), curve: Curves.backOut),
+        ).animate().fadeIn(delay: 1.seconds).scale(begin: const Offset(0.8, 0.8), curve: Curves.easeOutBack),
       ],
     );
   }
@@ -510,7 +510,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         const Hero(
           tag: 'device_icon',
           child: Icon(Icons.wifi_lock, size: 60, color: Colors.tealAccent),
-        ).animate().scale(duration: 400.ms, curve: Curves.backOut),
+        ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
         const SizedBox(height: 24),
         Text(
           "Device WiFi Setup",
@@ -554,7 +554,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
             ),
           ),
-        ).animate().fadeIn(delay: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.backOut),
+        ).animate().fadeIn(delay: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
         const SizedBox(height: 16),
         TextButton(
           onPressed: _prevStep,
@@ -767,7 +767,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
             ),
           ),
-        ).animate().fadeIn(delay: 800.ms).scale(begin: const Offset(0.8, 0.8), curve: Curves.backOut),
+        ).animate().fadeIn(delay: 800.ms).scale(begin: const Offset(0.8, 0.8), curve: Curves.easeOutBack),
       ],
     );
   }
