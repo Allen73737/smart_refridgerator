@@ -254,16 +254,23 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
 
   Widget _buildGlassCard({required List<Widget> children, double width = 340}) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(30),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           width: width,
           padding: const EdgeInsets.all(32),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.15)),
+            color: Colors.white.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withOpacity(0.1), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 40,
+                offset: const Offset(0, 20),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -271,59 +278,108 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           ),
         ),
       ),
-    );
+    ).animate().fadeIn(duration: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.outBack);
   }
 
   Widget _buildWelcome() {
     return _buildGlassCard(
       children: [
-        const Icon(Icons.kitchen_outlined, size: 80, color: Colors.tealAccent)
+        Hero(
+          tag: 'device_icon',
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.tealAccent.withOpacity(0.15),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.tealAccent.withOpacity(0.3),
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: const Icon(Icons.kitchen_outlined, size: 80, color: Colors.tealAccent),
+          ),
+        )
             .animate(onPlay: (c) => c.repeat())
-            .shimmer(duration: 2.seconds),
-        const SizedBox(height: 24),
+            .shimmer(duration: 2.seconds, colors: [Colors.tealAccent, Colors.white, Colors.tealAccent])
+            .scale(begin: const Offset(1, 1), end: const Offset(1.05, 1.05), duration: 1500.ms, curve: Curves.easeInOut),
+        const SizedBox(height: 32),
         Text(
           "Add Your Smart Device",
           textAlign: TextAlign.center,
           style: GoogleFonts.orbitron(
-            fontSize: 22,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
             color: Colors.white,
+            letterSpacing: 1.2,
           ),
-        ),
+        ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.2),
         const SizedBox(height: 16),
-        const Text(
+        Text(
           "Set up your device in just a few steps to start monitoring your fridge.",
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-        const SizedBox(height: 32),
-        const Row(
-          children: [
-            Icon(Icons.power_settings_new, color: Colors.tealAccent, size: 18),
-            SizedBox(width: 12),
-            Expanded(child: Text("Power on your ESP32 device", style: TextStyle(color: Colors.white))),
-          ],
-        ),
-        const SizedBox(height: 12),
-        const Row(
-          children: [
-            Icon(Icons.bluetooth_searching, color: Colors.tealAccent, size: 18),
-            SizedBox(width: 12),
-            Expanded(child: Text("Keep your phone nearby", style: TextStyle(color: Colors.white))),
-          ],
-        ),
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+        ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.2),
         const SizedBox(height: 40),
+        Column(
+          children: [
+            _buildInfoRow(Icons.power_settings_new, "Power on your ESP32 device"),
+            const SizedBox(height: 16),
+            _buildInfoRow(Icons.wifi_tethering, "Stay within range of the device"),
+          ],
+        ).animate(interval: 200.ms).fadeIn(delay: 600.ms).slideX(begin: -0.1),
+        const SizedBox(height: 48),
         SizedBox(
           width: double.infinity,
-          height: 50,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.tealAccent,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          height: 56,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.tealAccent.withOpacity(0.2),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
+              ],
             ),
-            onPressed: _nextStep,
-            child: const Text("Start Setup", style: TextStyle(fontWeight: FontWeight.bold)),
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.tealAccent,
+                foregroundColor: Colors.black,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              onPressed: _nextStep,
+              child: Text(
+                "START SETUP",
+                style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.5),
+              ),
+            ),
+          ),
+        ).animate().fadeIn(delay: 1.seconds).scale(begin: const Offset(0.8, 0.8), curve: Curves.outBack),
+      ],
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.tealAccent.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: Colors.tealAccent, size: 20),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
           ),
         ),
       ],
@@ -334,69 +390,115 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     return _buildGlassCard(
       children: [
         SizedBox(
-          height: 100,
-          width: 100,
+          height: 160,
+          width: 160,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              const CircularProgressIndicator(color: Colors.tealAccent, strokeWidth: 2),
-              const Icon(Icons.wifi_find, color: Colors.tealAccent, size: 40),
-            ],
-          ),
-        ).animate(onPlay: (c) => c.repeat()).scale(begin: const Offset(0.8, 0.8), end: const Offset(1.1, 1.1), duration: 1.seconds, curve: Curves.easeInOut),
-        const SizedBox(height: 24),
-        const Text(
-          "Searching for device...",
-          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 16),
-        RichText(
-          textAlign: TextAlign.center,
-          text: const TextSpan(
-            text: "Please connect your phone to the ",
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-            children: [
-              TextSpan(text: "SMRIDGE_SETUP", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-              TextSpan(text: " WiFi network in your settings."),
+              // Radar Rings
+              ...List.generate(3, (index) => 
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.tealAccent.withOpacity(0.2), width: 2),
+                  ),
+                ).animate(onPlay: (c) => c.repeat()).scale(
+                  duration: 2.seconds,
+                  delay: (index * 600).ms,
+                  begin: const Offset(0.2, 0.2),
+                  end: const Offset(1.2, 1.2),
+                ).fadeOut(duration: 2.seconds)
+              ),
+              // Center Icon
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1B2C33),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.wifi_find, color: Colors.tealAccent, size: 40),
+              ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
             ],
           ),
         ),
         const SizedBox(height: 32),
         Text(
-          "Current WiFi: ${_currentSsid ?? 'Checking...'}",
-          style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+          "Searching for device...",
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
+        const SizedBox(height: 24),
+        RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(
+            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+            children: const [
+              TextSpan(text: "Please connect your phone to the "),
+              TextSpan(text: "SMRIDGE_SETUP", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+              TextSpan(text: " WiFi network in your settings."),
+            ],
+          ),
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.wifi, color: Colors.white54, size: 14),
+              const SizedBox(width: 8),
+              Text(
+                "Current: ${_currentSsid ?? 'Checking...'}",
+                style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 48),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white30),
+                  side: const BorderSide(color: Colors.white24),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                onPressed: () => launchUrl(Uri.parse('package:android_settings/wifi_settings')), // Fallback placeholder
-                child: const Text("WiFi Settings"),
+                onPressed: () => launchUrl(Uri.parse('package:android_settings/wifi_settings')),
+                child: Text("SETTINGS", style: GoogleFonts.orbitron(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 16),
             Expanded(
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.tealAccent,
                   foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: _checkEspConnection,
-                child: _isCheckingWifi ? const SizedBox(height: 15, width: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Text("I've Connected"),
+                child: _isCheckingWifi 
+                  ? const SizedBox(height: 15, width: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
+                  : Text("CONNECTED", style: GoogleFonts.orbitron(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
         ),
+        const SizedBox(height: 16),
         TextButton(
           onPressed: _prevStep,
-          child: const Text("Go Back", style: TextStyle(color: Colors.white54)),
+          child: Text("GO BACK", style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13, letterSpacing: 1)),
         ),
       ],
     );
@@ -405,64 +507,92 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   Widget _buildWifiConfig() {
     return _buildGlassCard(
       children: [
-        const Icon(Icons.wifi_lock, size: 60, color: Colors.tealAccent),
+        const Hero(
+          tag: 'device_icon',
+          child: Icon(Icons.wifi_lock, size: 60, color: Colors.tealAccent),
+        ).animate().scale(duration: 400.ms, curve: Curves.outBack),
         const SizedBox(height: 24),
-        const Text(
-          "Connect Device to WiFi",
-          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+        Text(
+          "Device WiFi Setup",
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        const SizedBox(height: 10),
-        const Text(
-          "The device will use these credentials to connect to the internet.",
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70, fontSize: 12),
+        const SizedBox(height: 12),
+        Text(
+          "Target SSID: ${(_currentSsid != null && _currentSsid!.toUpperCase().contains('SMRIDGE_SETUP')) ? 'ESP32 Device' : 'Unknown'}",
+          style: GoogleFonts.outfit(color: Colors.tealAccent.withOpacity(0.7), fontSize: 13),
         ),
-        const SizedBox(height: 30),
-        TextField(
+        const SizedBox(height: 32),
+        _buildTextField(
           controller: _wifiSsidController,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-             labelText: "WiFi Name",
-             labelStyle: const TextStyle(color: Colors.white70),
-             prefixIcon: const Icon(Icons.wifi, color: Colors.tealAccent, size: 20),
-             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.2))),
-          ),
-        ),
+          label: "Network SSID",
+          icon: Icons.wifi,
+        ).animate().fadeIn(delay: 200.ms).slideX(begin: 0.1),
         const SizedBox(height: 20),
-        TextField(
+        _buildTextField(
           controller: _wifiPasswordController,
-          obscureText: _obscurePassword,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-             labelText: "WiFi Password",
-             labelStyle: const TextStyle(color: Colors.white70),
-             prefixIcon: const Icon(Icons.lock_outline, color: Colors.tealAccent, size: 20),
-             suffixIcon: IconButton(
-               icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54, size: 18),
-               onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-             ),
-             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.2))),
-          ),
-        ),
-        const SizedBox(height: 40),
+          label: "Password",
+          icon: Icons.lock_outline,
+          isPassword: true,
+        ).animate().fadeIn(delay: 400.ms).slideX(begin: 0.1),
+        const SizedBox(height: 48),
         SizedBox(
           width: double.infinity,
-          height: 50,
+          height: 56,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.tealAccent,
               foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             onPressed: _startConfiguration,
-            child: const Text("Connect Device", style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(
+              "CONNECT DEVICE",
+              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
           ),
-        ),
+        ).animate().fadeIn(delay: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.outBack),
+        const SizedBox(height: 16),
         TextButton(
           onPressed: _prevStep,
-          child: const Text("Go Back", style: TextStyle(color: Colors.white54)),
+          child: Text("GO BACK", style: GoogleFonts.outfit(color: Colors.white54)),
         ),
       ],
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool isPassword = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: isPassword && _obscurePassword,
+        style: GoogleFonts.outfit(color: Colors.white),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: GoogleFonts.outfit(color: Colors.white54, fontSize: 14),
+          prefixIcon: Icon(icon, color: Colors.tealAccent, size: 20),
+          suffixIcon: isPassword ? IconButton(
+            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54, size: 18),
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+          ) : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          floatingLabelStyle: GoogleFonts.outfit(color: Colors.tealAccent),
+        ),
+      ),
     );
   }
 
@@ -471,41 +601,77 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
       children: [
         const SizedBox(height: 20),
         SizedBox(
-          height: 120,
-          width: 120,
-          child: CircularProgressIndicator(
-            value: _progressValue,
-            strokeWidth: 8,
-            backgroundColor: Colors.white12,
-            color: Colors.tealAccent,
+          height: 160,
+          width: 160,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CircularProgressIndicator(
+                value: _progressValue,
+                strokeWidth: 4,
+                backgroundColor: Colors.white.withOpacity(0.05),
+                color: Colors.tealAccent,
+              ),
+              Container(
+                margin: const EdgeInsets.all(15),
+                padding: const EdgeInsets.all(25),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.tealAccent.withOpacity(0.05),
+                ),
+                child: Text(
+                  "${(_progressValue * 100).toInt()}%",
+                  style: GoogleFonts.orbitron(
+                    fontSize: 24,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 30),
+        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
+        const SizedBox(height: 40),
         Text(
-          "${(_progressValue * 100).toInt()}%",
-          style: GoogleFonts.orbitron(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 30),
+          "CONFIGURING SYSTEM",
+          style: GoogleFonts.orbitron(
+            color: Colors.tealAccent,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2,
+          ),
+        ).animate(onPlay: (c) => c.repeat()).fadeIn(duration: 1.seconds).fadeOut(duration: 1.seconds),
+        const SizedBox(height: 32),
         Container(
-          height: 120,
+          height: 140,
           width: double.infinity,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.black26,
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.black.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.1)),
           ),
           child: ListView.builder(
             itemCount: _progressLogs.length,
             itemBuilder: (context, index) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  _progressLogs[index],
-                  style: TextStyle(
-                    color: _progressLogs[index].startsWith("❌") ? Colors.redAccent : Colors.white70,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
+                child: Row(
+                  children: [
+                    Text(
+                      "> ",
+                      style: GoogleFonts.sourceCodePro(color: Colors.tealAccent, fontSize: 12),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _progressLogs[index],
+                        style: GoogleFonts.sourceCodePro(
+                          color: _progressLogs[index].startsWith("❌") ? Colors.redAccent : Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ).animate().fadeIn(duration: 300.ms).slideX(begin: 0.1),
+                    ),
+                  ],
                 ),
               );
             },
@@ -513,10 +679,15 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         ),
         if (_progressLogs.any((log) => log.startsWith("❌")))
           Padding(
-            padding: const EdgeInsets.only(top: 20),
+            padding: const EdgeInsets.only(top: 24),
             child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent.withOpacity(0.8),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               onPressed: () => setState(() => _currentStep = SetupStep.wifiConfig),
-              child: const Text("Retry"),
+              child: const Text("RETRY CONNECTION"),
             ),
           )
       ],
@@ -526,38 +697,63 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   Widget _buildSuccess() {
     return _buildGlassCard(
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.tealAccent,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.check, size: 60, color: Colors.black),
-        ).animate().scale(duration: 600.ms, curve: Curves.elasticOut),
-        const SizedBox(height: 24),
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            // Expanding Background Rings
+            ...List.generate(2, (index) => 
+              Container(
+                height: 120,
+                width: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.tealAccent.withOpacity(0.3), width: 2),
+                ),
+              ).animate().scale(
+                duration: 1.seconds,
+                delay: (index * 400).ms,
+                begin: const Offset(1, 1),
+                end: const Offset(2, 2),
+              ).fadeOut()
+            ),
+            // Check Circle
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: Colors.tealAccent,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check, size: 50, color: Colors.black),
+            ).animate().scale(duration: 600.ms, curve: Curves.elasticOut),
+          ],
+        ),
+        const SizedBox(height: 32),
         Text(
-          "Device Paired!",
+          "PAIRING COMPLETE",
+          textAlign: TextAlign.center,
           style: GoogleFonts.orbitron(
-            fontSize: 24,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
             color: Colors.white,
+            letterSpacing: 2,
           ),
-        ),
+        ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.2),
         const SizedBox(height: 16),
-        const Text(
-          "Your Smridge device is now connected and registering data.",
+        Text(
+          "Your Smridge device is successfully registered. Sensors are now transmitting live data.",
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-        const SizedBox(height: 40),
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+        ).animate().fadeIn(delay: 600.ms).slideY(begin: 0.2),
+        const SizedBox(height: 48),
         SizedBox(
           width: double.infinity,
-          height: 50,
+          height: 56,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.tealAccent,
               foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
             ),
             onPressed: () {
               Navigator.pushAndRemoveUntil(
@@ -566,9 +762,12 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                 (route) => false,
               );
             },
-            child: const Text("Go to Dashboard", style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(
+              "ACCESS DASHBOARD",
+              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
           ),
-        ),
+        ).animate().fadeIn(delay: 800.ms).scale(begin: const Offset(0.8, 0.8), curve: Curves.outBack),
       ],
     );
   }
