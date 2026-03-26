@@ -48,7 +48,7 @@ class ThemeSettingsScreen extends StatelessWidget {
 
           SafeArea(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+              padding: const EdgeInsets.only(left: 20, right: 20, top: 30, bottom: 220),
               children: [
                 _buildThemeCard(
                   context: context,

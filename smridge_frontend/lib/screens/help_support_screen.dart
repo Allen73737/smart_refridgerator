@@ -17,6 +17,7 @@ class HelpSupportScreen extends StatelessWidget {
     final isDark = themeType == ThemeType.dark;
     
     Color textColor = isLight ? Colors.black87 : Colors.white;
+    Color accentColor = isLight ? Colors.teal : Colors.tealAccent;
     
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -66,54 +67,47 @@ class HelpSupportScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildSection("Getting Started", isLight),
+                        _buildSection("Core Navigation", isLight),
                         const SizedBox(height: 8),
-                        _buildFaqItem("How do I add inventory?", "Tap the '+' button at the bottom dock. Choose 'Packaged' to scan a barcode (auto-fills item data from OpenFoodFacts) or 'Non-Packaged' to enter details manually. The load cell will automatically detect weight.", isLight),
+                        _buildFaqItem("How do I use the 3D Fridge?", "Interact directly with the 3D model! Tap the doors to toggle them open/closed, or tap individual slots to see what's inside. Use the Bottom Dock to switch between different monitoring hubs.", isLight),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I scan a barcode?", "Select 'Packaged Item' → point your camera at the barcode. The app queries OpenFoodFacts API and auto-fills name, brand, category, weight, and estimated expiry date. You can edit any field before saving.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("What are the fridge categories?", "Items are categorized as: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condiments, Bakery, Frozen, Leftovers, or Others. The app auto-detects the category from the item name.", isLight),
+                        _buildFaqItem("What is the zoom effect?", "When you select the 'Status' tab, the camera will automatically zoom into the upper fridge section where the main sensor cluster (Temp/Humidity/Gas) is located for a detailed view.", isLight),
 
                         const SizedBox(height: 20),
-                        _buildSection("Fridge & Sensors", isLight),
+                        _buildSection("AI & Inventory", isLight),
                         const SizedBox(height: 8),
-                        _buildFaqItem("How do I calibrate the sensors?", "Navigate to Settings → 'Device Metrics Configuration' and adjust the temperature, humidity, and gas threshold parameters to match your ESP32 hardware environment.", isLight),
+                        _buildFaqItem("How do I add items?", "Tap the '+' button. For packaged goods, use the 'AI Barcode Scanner' to autofill all data. For fresh produce, use 'Manual Entry' and optionally snap a photo for image recognition.", isLight),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("Why is the fridge glowing red?", "Red pulsing indicates a critical threshold breach — temperature has exceeded safe limits (>8°C), gas reading is abnormal, or freshness has dropped below thresholds. Check the Analytics screen for exact readings.", isLight),
+                        _buildFaqItem("What is the Freshness Score?", "Our AI calculates a score (0-100%) based on atmospheric data and storage time. If a score drops below 40%, you'll receive a 'Critical Freshness' alert on your navbar.", isLight),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How does the load cell work?", "The load cell sensor auto-detects the weight of items placed in the fridge. On the Add Inventory screen, you'll see 'Reading Load Cell...' while it stabilizes, then 'Load Cell Locked' once the weight is captured. You can also manually override the weight.", isLight),
+                        _buildFaqItem("How does the weight sensor work?", "If your ESP32 is equipped with a load cell, Smridge will live-stream the weight during the 'Add' process. Once it stabilizes, it will 'Lock' the value automatically.", isLight),
+
+                        const SizedBox(height: 20),
+                        _buildSection("System & Hardware", isLight),
+                        const SizedBox(height: 8),
+                        _buildFaqItem("ESP32 Connection Issues?", "Ensure your ESP32 is on the same network. Navigate to Settings → Advanced Device Config to update the IP endpoint and calibrate sensor thresholds.", isLight),
                         Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I close the fridge door?", "Tap the door icon (🚪) next to the inventory list icon at the top-right of the fridge view. You can also tap directly on the 3D door or swipe it closed.", isLight),
+                        _buildFaqItem("Why are my notifications not working?", "Check your 'App Security PIN' in settings. If enabled, notifications may be silenced until the app is unlocked. Ensure you have 'Push Alerts' enabled in the OS settings.", isLight),
                         
-                        const SizedBox(height: 20),
-                        _buildSection("Customization", isLight),
-                        const SizedBox(height: 8),
-                        _buildFaqItem("How do I change the fridge color?", "Go to Settings → Advanced Settings → 'Fridge Visuals'. You can customize both the exterior and interior colors using the color picker. Hit 'Revert to Default Visuals' to restore original colors.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I customize sounds?", "Settings → Advanced Settings → 'Audio Customization'. Choose from 7 unique sounds for each category: Fridge Working, Door, General Notification, Expiry Notification, and Inventory Save. Use the preview button (▶) to hear sounds before selecting.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I switch themes?", "Open the side menu → tap 'App Theme', or go to Settings → Theme. Choose between Default (dark blue gradient), Light Mode, or Dark Mode. All screens including the splash screen adapt to your chosen theme.", isLight),
-
-                        const SizedBox(height: 20),
-                        _buildSection("Notifications & Alerts", isLight),
-                        const SizedBox(height: 8),
-                        _buildFaqItem("What types of notifications are there?", "Smridge sends alerts for: items about to expire (48-hour warning), temperature breaches, unusual gas readings, prolonged door-open events, and sudden weight drops. Each notification type has its own customizable sound.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I silence notifications?", "In Advanced Settings → Audio Customization, select 'None' from any sound dropdown to mute that specific notification type.", isLight),
-
-                        const SizedBox(height: 20),
-                        _buildSection("Analytics & Data", isLight),
-                        const SizedBox(height: 8),
-                        _buildFaqItem("How do the analytics graphs work?", "The Analytics screen shows live temperature, humidity, and freshness data. Data points update every 3 seconds from the ESP32 sensors (or simulator). Tap any point on the graph for detailed values.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("What is the Freshness Score?", "Freshness Score (0-100) is calculated based on temperature stability, storage duration, and item category. A score below 50 triggers an expiry warning. The score is displayed both on the status panel and in item details.", isLight),
-
-                        const SizedBox(height: 20),
-                        _buildSection("Contact & Support", isLight),
-                        const SizedBox(height: 8),
-                        _buildFaqItem("Contact Technical Support", "Still facing hardware or software issues? Email our engineering team at support@smridge.io. Please include your hardware MAC address, app version, and a screenshot of the issue. We typically respond within 24 hours.", isLight),
-                        Divider(color: isLight ? Colors.black12 : Colors.white24, height: 30),
-                        _buildFaqItem("How do I report a bug?", "Go to Settings → Help & Support (this screen), note the issue details, and email support@smridge.io with steps to reproduce the problem. Include your device model, OS version, and any error messages displayed.", isLight),
+                        const SizedBox(height: 40),
+                        Center(
+                          child: Column(
+                            children: [
+                              Text("Still need help?", style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 14)),
+                              const SizedBox(height: 10),
+                              ElevatedButton.icon(
+                                onPressed: () {}, // Future: Email trigger
+                                icon: const Icon(Icons.support_agent_outlined),
+                                label: const Text("Contact Smridge Engineering"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: accentColor,
+                                  foregroundColor: Colors.black,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ).animate().fadeIn().slideY(begin: 0.1),
                   ),

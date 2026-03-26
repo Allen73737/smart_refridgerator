@@ -13,6 +13,7 @@ import 'services/secure_storage_service.dart';
 import 'services/api_service.dart'; // 🔹 Added
 import 'services/notification_service.dart';
 import 'services/socket_service.dart'; // 🔹 Added
+import 'services/haptic_service.dart'; // 🔹 New
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
 import 'config/app_themes.dart';
@@ -28,6 +29,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await HapticService.init(); // 📳
 
   // 🔥 Initialize Firebase
   await Firebase.initializeApp(

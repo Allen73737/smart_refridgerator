@@ -714,14 +714,13 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                                         ],
                                       ),
                                     ),
-                                    ),
                                     Positioned(
                                       bottom: 20,
                                       right: 24,
                                       child: _buildCircleAction(
                                         icon: Icons.add_a_photo_outlined, 
                                         onTap: () => _showImageSearchDialog(isLight),
-                                      ).animate().scale(delay: 400.ms),
+                                      ).animate().scale(begin: const Offset(0.01, 0.01), delay: 400.ms),
                                     ),
                                     Positioned(
                                       bottom: 20,
@@ -769,7 +768,7 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                       ),
                     ),
                   ),
-                ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+                ).animate().scale(begin: const Offset(0.01, 0.01), duration: 400.ms, curve: Curves.easeOutBack),
               ),
             ),
           ),
@@ -895,6 +894,8 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                   _buildModernInfoRow(Icons.info_outline, "Auto-Estimation", (_item.expirySource == 'estimated' || _item.expirySource == 'AI' || _item.expirySource == 'AI_EDIT') ? 'AI' : (_item.expirySource ?? 'Manual'), textColor, isLight),
                   if (_item.reminderDate != null)
                     _buildModernInfoRow(Icons.alarm, "Reminder", DateFormat('MMM dd, yyyy - HH:mm').format(_item.reminderDate!), textColor, isLight),
+                  if (_item.notes != null && _item.notes!.isNotEmpty)
+                    _buildModernInfoRow(Icons.notes, "Notes", _item.notes!, textColor, isLight),
                   
                   // 🔹 Local Reminder Sync Action
                   Padding(

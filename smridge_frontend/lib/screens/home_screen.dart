@@ -4,7 +4,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'add_device_screen.dart';
 import '../models/inventory_item.dart';
 import '../widgets/fridge_3d.dart';
 import '../widgets/animated_bottom_dock.dart';
@@ -12,6 +14,7 @@ import '../widgets/creative_navbar.dart';
 import '../core/page_transitions.dart';
 import 'add_inventory_screen.dart';
 import 'add_inventory_choice_screen.dart';
+import 'inventory_list_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
 import 'login_screen.dart';
@@ -39,6 +42,7 @@ import '../widgets/product_details_overlay.dart'; // New import
 import '../widgets/chat_assistant_overlay.dart'; // New import
 import '../services/socket_service.dart';
 import '../services/icon_service.dart';
+import '../widgets/app_walkthrough.dart'; // 🎯
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -53,8 +57,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<Fridge3DState> _fridgeKey = GlobalKey<Fridge3DState>();
+  
+  // 🎯 Walkthrough Keys
+  final GlobalKey _wtFridgeKey = GlobalKey();
+  final GlobalKey _wtStatusKey = GlobalKey();
+  final GlobalKey _wtInventoryKey = GlobalKey();
+  final GlobalKey _wtAddKey = GlobalKey();
+  final GlobalKey _wtSettingsKey = GlobalKey();
+  final GlobalKey _wtNotificationKey = GlobalKey();
+  
+  // 🎯 Dock Unique Keys (to prevent GlobalKey duplicate conflict)
+  final GlobalKey _wtDockFridgeKey = GlobalKey();
+  final GlobalKey _wtDockStatusKey = GlobalKey();
+  final GlobalKey _wtDockInventoryKey = GlobalKey();
+  final GlobalKey _wtDockAddKey = GlobalKey();
+  final GlobalKey _wtDockNotificationKey = GlobalKey();
+  final GlobalKey _wtDockSettingsKey = GlobalKey();
+
   int selectedTab = 0;
   List<InventoryItem> inventory = [];
+  bool _showWalkthrough = false; // 🎯
+  List<WalkthroughStep> _currentWalkthroughSteps = []; // 🎯
 
   //////////////////////////////////////////////////////////////
   // 🔹 INVENTORY ADD FLOW STATE
@@ -62,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AddFlowState _addFlowState = AddFlowState.choice;
   InventoryItem? _scannedItem;
-  List<InventoryItem> inventory = [];
   bool _isInventoryLoading = true; 
   int? _editItemIndex;
   int unreadNotifications = 0;
@@ -106,12 +128,55 @@ class _HomeScreenState extends State<HomeScreen> {
     _expiryCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _checkExpiryTimers();
     });
+
+    // 🎯 Walkthrough and Network Check
+    Future.delayed(1.seconds, () {
+      _checkWalkthrough();
+      _checkNetworkChange();
+    });
+  }
+
+  Future<void> _checkNetworkChange() async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) return; // Only for logged in users
+
+    try {
+      final info = NetworkInfo();
+      String? currentSsid = await info.getWifiName();
+      if (currentSsid == null) return;
+      
+      // Remove quotes
+      if (currentSsid.startsWith('"') && currentSsid.endsWith('"')) {
+        currentSsid = currentSsid.substring(1, currentSsid.length - 1);
+      }
+
+      final lastSsid = await SecureStorageService.getString('last_known_ssid');
+      
+      if (lastSsid != null && lastSsid != currentSsid && !currentSsid.contains("SMRIDGE_SETUP")) {
+        print("🌐 Network Change Detected: $lastSsid -> $currentSsid");
+        if (mounted) {
+           Navigator.push(context, MaterialPageRoute(builder: (_) => const AddDeviceScreen()));
+        }
+      }
+
+      await SecureStorageService.saveString('last_known_ssid', currentSsid);
+    } catch (e) {
+      print("Network Check Error: $e");
+    }
+  }
+
+  Future<void> _checkWalkthrough() async {
+    final seen = await SecureStorageService.hasSeenWalkthrough();
+    if (!seen && mounted) {
+      _triggerTabWalkthrough(0);
+      await SecureStorageService.setWalkthroughSeen(true); // Mark general as seen
+    }
   }
 
   Future<void> _logAppOpen() async {
     final token = await SecureStorageService.getToken();
     if (token != null) {
-      await ApiService.logActivity("APP_OPEN", "User opened the Smridge app", token);
+      await ApiService.logActivity("APP_OPEN", "User opened the Smridge app", token, color: '#FFAA00');
     }
   }
 
@@ -223,9 +288,11 @@ class _HomeScreenState extends State<HomeScreen> {
     SocketService.on('sensor_data', (data) {
       if (mounted) {
         setState(() {
-          gasLevel = (data['gasLevel'] as num).toInt();
-          fridgeTemp = (data['temperature'] as num).toDouble();
-          // You can update more metrics here if needed
+          // Robust parsing using tryParse to avoid "String is not a subtype of num"
+          final rawGas = data['gasLevel']?.toString() ?? "0";
+          final rawTemp = data['temperature']?.toString() ?? "0";
+          gasLevel = int.tryParse(rawGas) ?? 0;
+          fridgeTemp = double.tryParse(rawTemp) ?? 0.0;
         });
       }
     });
@@ -541,9 +608,7 @@ class _HomeScreenState extends State<HomeScreen> {
         else if (daysLeft <= 2) statusColor = Colors.orangeAccent;
 
         return GestureDetector(
-          onTap: () {
-            _triggerAnalysisSync(item);
-          },
+          onTap: () => _showProductDetails(item),
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
             padding: const EdgeInsets.all(12),
@@ -853,7 +918,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: Text("Logout", style: TextStyle(color: isLight ? Colors.red : Colors.redAccent, fontSize: 16)),
                 onTap: () async {
                   await SecureStorageService.clearAll();
-                  if (!context.mounted) return;
                   Navigator.pushAndRemoveUntil(context, FadeSlidePageRoute(page: const LoginScreen()), (route) => false);
                 },
               ),
@@ -862,7 +926,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      ),
+    ),
 
       // REMOVED: Replaced with draggable icon in body Stack
       floatingActionButton: null,
@@ -902,24 +966,29 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Offstage(
                 offstage: selectedTab > 2,
-                child: Center(
-                  child: Fridge3D(
-                    key: _fridgeKey,
-                    selectedTab: selectedTab <= 2 ? selectedTab : 0,
-                    inventory: inventory,
-                    onAddPressed: () {
-                      setState(() {
-                        selectedTab = 3;
-                        _addFlowState = AddFlowState.choice;
-                        _scannedItem = null;
-                        _editItemIndex = null;
-                      });
-                    },
-                    onDelete: deleteInventoryItem,
-                    onEdit: editInventoryItem,
-                    onItemTap: (item) {
-                      _triggerAnalysisSync(item);
-                    },
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.only(top: 100, bottom: 120),
+                  child: Center(
+                    child: Fridge3D(
+                      key: _fridgeKey,
+                      walkthroughKey: _wtFridgeKey, // 🎯
+                      selectedTab: selectedTab <= 2 ? selectedTab : 0,
+                      inventory: inventory,
+                      onAddPressed: () {
+                        setState(() {
+                          selectedTab = 3;
+                          _addFlowState = AddFlowState.choice;
+                          _scannedItem = null;
+                          _editItemIndex = null;
+                        });
+                      },
+                      onDelete: deleteInventoryItem,
+                      onEdit: editInventoryItem,
+                      onItemTap: (item) {
+                        _triggerAnalysisSync(item);
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -975,6 +1044,8 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 20,
               child: CreativeNavbar(
                 onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                walkthroughKey: _wtNotificationKey,
+                notificationCount: unreadNotifications,
               ).animate().slideY(begin: -1, duration: 800.ms, curve: Curves.easeOutQuart).fadeIn(),
             ),
 
@@ -990,6 +1061,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: AnimatedBottomDock(
               currentIndex: selectedTab,
               notificationCount: unreadNotifications, 
+              itemKeys: [_wtDockFridgeKey, _wtDockStatusKey, _wtDockInventoryKey, _wtDockAddKey, _wtDockNotificationKey, _wtDockSettingsKey],
               onTap: (index) async {
                 if (index == 3) {
                   setState(() {
@@ -1001,6 +1073,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   return;
                 }
 
+                if (index == 4) {
+                   setState(() => selectedTab = 5); // Dock 4 -> Settings
+                   return;
+                }
+
                 if (selectedTab == 2 && index == 2) {
                   final state = _fridgeKey.currentState;
                   if (state != null) {
@@ -1008,21 +1085,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 }
                 
-                setState(() {
-                  selectedTab = index;
-                });
+                setState(() => selectedTab = index);
+                // 🎯 Trigger Tab-Specific Walkthrough
+                _triggerTabWalkthrough(index);
               },
-              onDoubleTap: (index) {
+              onDoubleTap: (index) async {
                 if (index == 1) { 
                   setState(() {
-                    selectedTab = 6; 
+                    selectedTab = 6; // Double tap status -> Analytics
                   });
                 } else if (index == 2) {
-                  // 🚀 Double tap Inventory → show List View!
-                  if (_fridgeKey.currentState != null) {
-                    _fridgeKey.currentState!.setState(() {
-                       _fridgeKey.currentState!.showInventoryList = true;
-                    });
+                  // 🚀 Double tap Inventory → Navigate to Detailed Screen!
+                  final result = await Navigator.push(
+                    context, 
+                    MaterialPageRoute(builder: (_) => InventoryListScreen(
+                      inventory: inventory, 
+                      onDelete: deleteInventoryItem, 
+                      onEdit: editInventoryItem,
+                      onItemTap: (item) {
+                         _triggerAnalysisSync(item);
+                         _showProductDetails(item);
+                      },
+                    ))
+                  );
+                  if (result == "TRIGGER_ADD") {
+                     setState(() {
+                       _addFlowState = AddFlowState.choice;
+                       selectedTab = 3;
+                     });
                   }
                 }
               },
@@ -1032,23 +1122,6 @@ class _HomeScreenState extends State<HomeScreen> {
           //////////////////////////////////////////////////////////
           // PRODUCT DETAILS OVERLAY
           //////////////////////////////////////////////////////////
-          if (_selectedItemForDetails != null)
-            Positioned.fill(
-              child: ProductDetailsOverlay(
-                item: _selectedItemForDetails!,
-                onClose: () => setState(() => _selectedItemForDetails = null),
-                onEdit: () {
-                  final idx = inventory.indexOf(_selectedItemForDetails!);
-                  setState(() => _selectedItemForDetails = null);
-                  if (idx != -1) editInventoryItem(idx, inventory[idx]);
-                },
-                onDelete: () {
-                  final idx = inventory.indexOf(_selectedItemForDetails!);
-                  setState(() => _selectedItemForDetails = null);
-                  if (idx != -1) deleteInventoryItem(idx);
-                },
-              ),
-            ),
 
           //////////////////////////////////////////////////////////
           // 🤖 MOVABLE AI CHAT ICON
@@ -1234,17 +1307,149 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ).animate().scale(delay: 500.ms).fadeIn(),
           ),
+
+          //////////////////////////////////////////////////////////
+          // 🎯 WALKTHROUGH OVERLAY
+          //////////////////////////////////////////////////////////
+          if (_showWalkthrough && _currentWalkthroughSteps.isNotEmpty)
+            AppWalkthrough(
+              steps: _currentWalkthroughSteps,
+              onFinish: () async {
+                setState(() => _showWalkthrough = false);
+              },
+              onSkip: () async {
+                setState(() => _showWalkthrough = false);
+              },
+            ),
         ],
       ),
-      ),
+    ),
     );
   }
-  void _triggerAnalysisSync(InventoryItem item) async {
-    // 🔹 Instant state update for immediate UI response
-    if (mounted) {
+
+  void _triggerTabWalkthrough(int index) async {
+    final key = 'seen_walkthrough_tab_$index';
+    final seen = await SecureStorageService.getString(key);
+    if (seen == 'true') return;
+
+    List<WalkthroughStep> steps = [];
+    if (index == 0) {
+      steps = [
+        WalkthroughStep(
+          targetKey: _wtFridgeKey,
+          title: "Smridge Core",
+          description: "Welcome to your Smridge command center. Interact with the 3D model to toggle doors, check slots, or rotate your perspective.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtNotificationKey,
+          title: "Smart Alerts",
+          description: "Keep track of unread notifications and system alerts here. We'll warn you about expiry or unusual temperature spikes.",
+        ),
+      ];
+    } else if (index == 1) {
+      steps = [
+        WalkthroughStep(
+          targetKey: _wtDockStatusKey,
+          title: "Real-time Monitoring",
+          description: "This precision panel displays live sensor data from your ESP32. Monitor temperature, humidity, and atmospheric freshness instantly.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtDockStatusKey,
+          title: "System Insights",
+          description: "Double-tap this status panel to enter detailed Analytics, where you can view historical data trends and door-opened logs.",
+        ),
+      ];
+    } else if (index == 2) {
+      steps = [
+        WalkthroughStep(
+          targetKey: _wtDockInventoryKey,
+          title: "Smart Inventory",
+          description: "Your fridge contents are mapped to these cards. Tap any slot to view detailed item analytics or edit its metadata.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtDockInventoryKey,
+          title: "Door Control",
+          description: "Tap the Inventory icon again while selected to remotely open or close the physical fridge door via your ESP32.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtDockInventoryKey,
+          title: "Detailed View",
+          description: "Double-tap this icon for the Master Inventory List—a full-screen table for high-volume item management and search.",
+        ),
+      ];
+    } else if (index == 3) {
+      steps = [
+        WalkthroughStep(
+          targetKey: _wtDockAddKey,
+          title: "Expanding Your Kit",
+          description: "Use this portal to add new items. You can leverage the AI Scanner for automatic recognition or use Manual Entry for custom logs.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtDockAddKey,
+          title: "Automatic Tracking",
+          description: "Once added, Smridge uses weight sensors to track consumption patterns and predict expiry dates with clinical accuracy.",
+        ),
+      ];
+    } else if (index == 5 || index == 4) { // Handling both internal and dock indices
+      steps = [
+        WalkthroughStep(
+          targetKey: _wtDockSettingsKey,
+          title: "Config & Customization",
+          description: "Tailor your Smridge experience. Change visual themes, set security PINs, or calibrate your ESP32 sensor thresholds here.",
+        ),
+      ];
+    }
+
+    if (steps.isNotEmpty) {
+      await SecureStorageService.saveString(key, 'true');
       setState(() {
-        _selectedItemForDetails = item;
+        _currentWalkthroughSteps = steps;
+        _showWalkthrough = true;
       });
     }
+  }
+
+  void _triggerAnalysisSync(InventoryItem item) async {
+    if (mounted) {
+      setState(() {
+      });
+    }
+  }
+
+  void _showProductDetails(InventoryItem item) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Details",
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, anim1, anim2) {
+        return ProductDetailsOverlay(
+          item: item,
+          onClose: () => Navigator.pop(context),
+          onEdit: () {
+            Navigator.pop(context);
+            final idx = inventory.indexOf(item);
+            if (idx != -1) editInventoryItem(idx, item);
+          },
+          onDelete: () {
+            Navigator.pop(context);
+            final idx = inventory.indexOf(item);
+            if (idx != -1) deleteInventoryItem(idx);
+          },
+        );
+      },
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
   }
 }

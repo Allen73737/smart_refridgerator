@@ -150,33 +150,108 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   }
 
   void _startPolling() {
-    int attempts = 0;
+    _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      attempts++;
       final token = await SecureStorageService.getToken();
-      if (token == null) {
-        timer.cancel();
-        return;
-      }
-
+      if (token == null) return;
+      
       final devices = await ApiService.getUserDevices(token);
       if (devices.isNotEmpty) {
         timer.cancel();
-        setState(() {
-          _progressLogs.add("✅ Device Registered Successfully!");
-          _progressValue = 1.0;
-        });
-        await Future.delayed(const Duration(seconds: 1));
-        _nextStep(); // Go to Success
-      }
-
-      if (attempts > 20) {
-        timer.cancel();
-        setState(() {
-          _progressLogs.add("⚠️ Registration Timeout. Please check device LED.");
-        });
+        if (mounted) {
+          setState(() {
+            _progressValue = 1.0;
+            _progressLogs.add("✅ Device synchronized successfully!");
+          });
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) _nextStep(); // Move to Success
+        }
       }
     });
+  }
+
+  void _showSetupSettings() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          padding: const EdgeInsets.all(30),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F2027).withOpacity(0.9),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 25),
+              Text("SETUP CONFIGURATION", style: GoogleFonts.orbitron(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 2)),
+              const SizedBox(height: 30),
+              _buildConfigTile(Icons.sync_outlined, "Auto-Reconnect", "Try connecting if signal drops", true),
+              _buildConfigTile(Icons.wifi_tethering_outlined, "Aggressive Scan", "Find hidden devices", false),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Icon(Icons.signal_wifi_4_bar_outlined, color: Colors.white54, size: 18),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Sensitivity Threshold", style: GoogleFonts.outfit(color: Colors.white, fontSize: 14)),
+                        Slider(
+                          value: 0.7,
+                          onChanged: (_) {},
+                          activeColor: Colors.tealAccent,
+                          inactiveColor: Colors.white10,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              // Shortcut to System WiFi
+              _buildConfigTile(
+                Icons.wifi_find_outlined, 
+                "System WiFi Settings", 
+                "Connect to SMRIDGE_SETUP manually", 
+                false,
+                onTap: () => launchUrl(Uri.parse('package:android_settings/wifi_settings')),
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConfigTile(IconData icon, String title, String sub, bool initialVal, {VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white54, size: 22),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(sub, style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12)),
+              ]),
+            ),
+            if (onTap == null) Switch(value: initialVal, onChanged: (_) {}, activeColor: Colors.tealAccent),
+            if (onTap != null) const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 14),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -221,16 +296,25 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           Positioned(
             top: 50,
             right: 20,
-            child: IconButton(
-              icon: const Icon(Icons.skip_next_outlined, color: Colors.white70),
-              tooltip: "Bypass Setup",
-              onPressed: () {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  (route) => false,
-                );
-              },
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, color: Colors.white70),
+                  onPressed: _showSetupSettings,
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  icon: const Icon(Icons.skip_next_outlined, color: Colors.white70),
+                  tooltip: "Bypass Setup",
+                  onPressed: () {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HomeScreen()),
+                      (route) => false,
+                    );
+                  },
+                ),
+              ],
             ),
           ).animate().fadeIn(delay: 1.seconds),
         ],
@@ -443,7 +527,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                onPressed: () => launchUrl(Uri.parse('package:android_settings/wifi_settings')),
+                onPressed: _showSetupSettings,
                 child: Text("SETTINGS", style: GoogleFonts.orbitron(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ),

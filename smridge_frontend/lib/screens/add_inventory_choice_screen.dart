@@ -8,8 +8,10 @@ import 'barcode_scanner_screen.dart';
 import 'add_inventory_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../widgets/app_walkthrough.dart'; // 🎯
+import '../services/secure_storage_service.dart';
 
-class AddInventoryChoiceScreen extends StatelessWidget {
+class AddInventoryChoiceScreen extends StatefulWidget {
   final VoidCallback onPackaged;
   final VoidCallback onNonPackaged;
   final VoidCallback? onBack;
@@ -21,6 +23,49 @@ class AddInventoryChoiceScreen extends StatelessWidget {
     this.onBack
   });
 
+  @override
+  State<AddInventoryChoiceScreen> createState() => _AddInventoryChoiceScreenState();
+}
+
+class _AddInventoryChoiceScreenState extends State<AddInventoryChoiceScreen> {
+  final GlobalKey _wtPackagedKey = GlobalKey();
+  final GlobalKey _wtManualKey = GlobalKey();
+  
+  bool _showWalkthrough = false;
+  List<WalkthroughStep> _currentSteps = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFirstVisit();
+  }
+
+  Future<void> _checkFirstVisit() async {
+    final visited = await SecureStorageService.getString('visited_add_choice');
+    if (visited == null) {
+      _triggerWalkthrough();
+    }
+  }
+
+  void _triggerWalkthrough() {
+    setState(() {
+      _currentSteps = [
+        WalkthroughStep(
+          targetKey: _wtPackagedKey,
+          title: "AI Barcode Scanner",
+          description: "Use your device camera to scan retail barcodes. Smridge will automatically fetch product nutrition, weight, and suggested expiry dates.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtManualKey,
+          title: "Manual Logging",
+          description: "For fresh farm produce or unpackaged items, enter details manually. You can also snap a photo for AI-assisted image recognition.",
+        ),
+      ];
+      _showWalkthrough = true;
+    });
+    SecureStorageService.saveString('visited_add_choice', 'true');
+  }
+
   Widget _buildChoiceCard({
     required BuildContext context,
     required String title,
@@ -29,6 +74,7 @@ class AddInventoryChoiceScreen extends StatelessWidget {
     required VoidCallback onTap,
     required Color color,
     required bool isLight,
+    Key? key,
   }) {
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
@@ -36,6 +82,7 @@ class AddInventoryChoiceScreen extends StatelessWidget {
     final border = Border.all(color: isLight ? Colors.transparent : color.withOpacity(0.3), width: 1.5);
 
     return GestureDetector(
+      key: key, // 🎯
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(24),
@@ -92,8 +139,8 @@ class AddInventoryChoiceScreen extends StatelessWidget {
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () {
-            if (onBack != null) {
-              onBack!();
+            if (widget.onBack != null) {
+              widget.onBack!();
             } else {
               Navigator.pop(context);
             }
@@ -125,27 +172,36 @@ class AddInventoryChoiceScreen extends StatelessWidget {
                 children: [
                   _buildChoiceCard(
                     context: context,
+                    key: _wtPackagedKey, // 🎯
                     title: "Packaged Food",
                     subtitle: "Scan a barcode to instantly autofill product details.",
                     icon: Icons.qr_code_scanner,
                     color: Colors.tealAccent,
                     isLight: isLight,
-                    onTap: onPackaged,
+                    onTap: widget.onPackaged,
                   ).animate().slideX(begin: -0.2).fade(),
                   const SizedBox(height: 40),
                   _buildChoiceCard(
                     context: context,
+                    key: _wtManualKey, // 🎯
                     title: "Non-Packaged Food",
                     subtitle: "Enter details manually and optionally capture a photo.",
                     icon: Icons.fastfood_outlined,
                     color: Colors.blueAccent,
                     isLight: isLight,
-                    onTap: onNonPackaged,
+                    onTap: widget.onNonPackaged,
                   ).animate().slideX(begin: 0.2).fade(delay: const Duration(milliseconds: 100)),
                 ],
               ),
             ),
           ),
+          
+          if (_showWalkthrough)
+            AppWalkthrough(
+              steps: _currentSteps,
+              onFinish: () => setState(() => _showWalkthrough = false),
+              onSkip: () => setState(() => _showWalkthrough = false),
+            ),
         ],
       ),
     );

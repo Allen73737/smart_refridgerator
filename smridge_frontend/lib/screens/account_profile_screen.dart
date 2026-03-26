@@ -147,7 +147,7 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
           const Positioned.fill(child: WaveBackground()),
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+              padding: const EdgeInsets.only(left: 20, right: 20, top: 30, bottom: 220),
               child: Column(
                 children: [
                   // Avatar Section

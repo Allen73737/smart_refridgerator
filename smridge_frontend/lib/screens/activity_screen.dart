@@ -9,6 +9,7 @@ import '../services/socket_service.dart'; // 🔹 Added SocketService
 import '../providers/theme_provider.dart';
 import '../widgets/wave_background.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 class ActivityScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -284,7 +285,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
           _buildSmartInsights(textColor),
           const SizedBox(height: 20),
           _buildSummaryInfo(textColor),
-          const SizedBox(height: 120), // 🔹 Extra space for the Bottom Dock
+          const SizedBox(height: 220), // 🔹 Extra space for the Bottom Dock
         ],
       ),
     );
@@ -370,8 +371,17 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(a['action']?.toString().replaceAll('_', ' ') ?? "ACTION", 
-                                style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 11)),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(a['action']?.toString().replaceAll('_', ' ') ?? "ACTION", 
+                                    style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 11)),
+                                  Text(
+                                    DateFormat('HH:mm').format(DateTime.parse(a['timestamp'])),
+                                    style: TextStyle(color: color.withOpacity(0.8), fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
                               Text(a['details'] ?? "No details", 
                                 style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11, height: 1.3)),
                             ],
@@ -496,7 +506,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 120), // 🔹 Added bottom padding for dock
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 220), // 🔹 Added bottom padding for dock
       itemCount: activities.length,
       itemBuilder: (context, index) {
         final act = activities[index];
@@ -520,7 +530,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
               child: ListTile(
                 contentPadding: const EdgeInsets.all(16),
-                leading: _buildActionIcon(act['action']),
+                leading: _buildActionIcon(act['action'], customColor: act['color']),
                 title: Text(act['action'].replaceAll('_', ' '), 
                   style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 15)),
                 subtitle: Padding(
@@ -544,25 +554,42 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
   }
 
-  Widget _buildActionIcon(String action, {double size = 20}) {
+  Widget _buildActionIcon(String action, {double size = 20, String? customColor}) {
     IconData icon;
     Color color;
 
+    if (customColor != null && customColor.isNotEmpty) {
+      try {
+        color = HexColor(customColor);
+      } catch (e) {
+        color = Colors.cyanAccent;
+      }
+    } else {
+      if (action.contains("ITEM")) {
+        color = const Color(0xFF00F2FF);
+      } else if (action.contains("DOOR")) {
+        color = const Color(0xFF7000FF);
+      } else if (action.contains("LOGIN")) {
+        color = const Color(0xFFFF007A);
+      } else if (action.contains("WEIGHT") || action.contains("INTEL")) {
+        color = const Color(0xFF00FFAB);
+      } else {
+        color = Colors.cyanAccent;
+      }
+    }
+
     if (action.contains("ITEM")) {
       icon = Icons.inventory_2_rounded;
-      color = const Color(0xFF00F2FF);
     } else if (action.contains("DOOR")) {
       icon = Icons.door_front_door_rounded;
-      color = const Color(0xFF7000FF);
     } else if (action.contains("LOGIN")) {
       icon = Icons.login_rounded;
-      color = const Color(0xFFFF007A);
     } else if (action.contains("WEIGHT") || action.contains("INTEL")) {
       icon = Icons.monitor_weight_rounded;
-      color = const Color(0xFF00FFAB);
+    } else if (action.contains("APP_OPEN")) {
+      icon = Icons.phonelink_setup;
     } else {
       icon = Icons.touch_app_rounded;
-      color = Colors.cyanAccent;
     }
 
     return Container(

@@ -3,14 +3,16 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 class AnimatedBottomDock extends StatelessWidget {
   final int currentIndex;
-  final int notificationCount; // 👈 New property
+  final int notificationCount;
+  final List<GlobalKey>? itemKeys; // 👈 Add this
   final Function(int) onTap;
   final Function(int)? onDoubleTap;
 
   const AnimatedBottomDock({
     super.key,
     required this.currentIndex,
-    this.notificationCount = 0, // 👈 Default to 0
+    this.notificationCount = 0,
+    this.itemKeys, // 👈
     required this.onTap,
     this.onDoubleTap,
   });
@@ -23,8 +25,7 @@ class AnimatedBottomDock extends StatelessWidget {
       Icons.monitor_heart, // 1 Status
       Icons.kitchen,       // 2 Inventory
       Icons.add_box,       // 3 Add
-      Icons.notifications, // 4
-      Icons.settings,      // 5
+      Icons.settings,      // 4 (shifted from 5)
     ];
 
     return Container(
@@ -41,75 +42,46 @@ class AnimatedBottomDock extends StatelessWidget {
 
             int visualIndex = currentIndex;
             if (currentIndex == 6) visualIndex = 1; // Analytics maps to Status
-            if (currentIndex > 6) visualIndex = 5;  // Profile/Help/Privacy map to Settings
+            if (currentIndex >= 4) visualIndex = 4; // Shifted settings/profile mapping
 
             bool active = visualIndex == index;
 
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0),
               child: GestureDetector(
+                key: (itemKeys != null && index < itemKeys!.length) ? itemKeys![index] : null,
                 onTap: () => onTap(index),
                 onDoubleTap: () => onDoubleTap?.call(index),
                 child: AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              curve: Curves.easeOut,
-              transform: Matrix4.translationValues(0, active ? -10 : 0, 0),
-              padding: EdgeInsets.all(active ? 12 : 8),
-              decoration: BoxDecoration(
-                color: active ? Colors.tealAccent.withOpacity(0.15) : Colors.transparent,
-                borderRadius: BorderRadius.circular(20),
-                border: active ? Border.all(color: Colors.tealAccent.withOpacity(0.5), width: 1.5) : Border.all(color: Colors.transparent),
-                boxShadow: active
-                    ? [BoxShadow(color: Colors.tealAccent.withOpacity(0.6), blurRadius: 20, spreadRadius: 2)]
-                    : [],
-              ),
-              child: AnimatedScale(
-                scale: active ? 1.3 : 1.0,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.elasticOut,
-                child: AnimatedRotation(
-                  turns: active ? 0.0 : -0.05,
-                  duration: const Duration(milliseconds: 300),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut,
+                  transform: Matrix4.translationValues(0, active ? -10 : 0, 0),
+                  padding: EdgeInsets.all(active ? 12 : 8),
+                  decoration: BoxDecoration(
+                    color: active ? Colors.tealAccent.withOpacity(0.15) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(20),
+                    border: active ? Border.all(color: Colors.tealAccent.withOpacity(0.5), width: 1.5) : Border.all(color: Colors.transparent),
+                    boxShadow: active
+                        ? [BoxShadow(color: Colors.tealAccent.withOpacity(0.6), blurRadius: 20, spreadRadius: 2)]
+                        : [],
+                  ),
+                  child: AnimatedScale(
+                    scale: active ? 1.3 : 1.0,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.elasticOut,
+                    child: AnimatedRotation(
+                      turns: active ? 0.0 : -0.05,
+                      duration: const Duration(milliseconds: 300),
+                      child: Icon(
                         icons[index],
                         color: active ? Colors.tealAccent : Colors.white54,
                         shadows: active ? [const Shadow(color: Colors.white, blurRadius: 10)] : null,
                       ),
-                      if (index == 4 && notificationCount > 0)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              color: Colors.redAccent,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.black, width: 1.5),
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 16,
-                              minHeight: 16,
-                            ),
-                            child: Text(
-                              (notificationCount ?? 0) > 99 ? "99+" : (notificationCount ?? 0).toString(),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ).animate().scale(duration: 300.ms, curve: Curves.bounceOut),
-                        ),
-                    ],
-                  ),
+                    ),
                   ),
                 ),
               ),
-            ));
+            );
           }),
         ),
       ),

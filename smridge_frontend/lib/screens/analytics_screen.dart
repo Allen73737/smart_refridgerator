@@ -25,14 +25,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<FlSpot> _tempData = [];
   List<FlSpot> _humData = [];
   List<FlSpot> _freshData = [];
+  List<FlSpot> _doorData = [];
   double _timeX = 1;
+
   DateTime? _lastUpdated;
-  String _syncStatus = "Syncing";
+  String _syncStatus = "Searching for ESP32...";
 
   @override
   void initState() {
     super.initState();
-    _lastUpdated = DateTime.now();
+    _initSocketListeners();
+  }
+
+  void _initSocketListeners() {
     SocketService.on('sensor_data', _onHardwareUpdate);
   }
 
@@ -47,20 +52,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _tempData.removeAt(0);
         _humData.removeAt(0);
         _freshData.removeAt(0);
+        _doorData.removeAt(0);
       }
 
-      double temp = (data['temperature'] as num).toDouble();
-      double hum = (data['humidity'] as num).toDouble();
-      double fresh = (data['calculatedFreshness'] as num).toDouble();
+      // Safe parsing to prevent crashes
+      double temp = 8.0;
+      double hum = 60.0;
+      double fresh = 85.0;
+      
+      try {
+        temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
+        hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
+        fresh = double.tryParse(data['calculatedFreshness']?.toString() ?? "85.0") ?? 85.0;
+      } catch (e) {
+        debugPrint("Error parsing analytics sensor data: $e");
+      }
+
+      double doorVal = data['doorStatus'] == 'open' ? 1.0 : 0.0;
 
       _tempData.add(FlSpot(x, temp));
       _humData.add(FlSpot(x, hum));
       _freshData.add(FlSpot(x, fresh));
+      _doorData.add(FlSpot(x, doorVal));
 
       _lastUpdated = DateTime.now();
       
       bool isReal = data['isReal'] ?? false;
-      _syncStatus = isReal ? "ESP32 Connected" : "ESP32 Connected (#)";
+      _syncStatus = isReal ? "ESP32 Connected" : "ESP32 Connected(#)";
       isLoading = false;
     });
   }
@@ -133,6 +151,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     _buildGraphCard("Relative Humidity (%)", "${_humData.last.y.toInt()}%", Colors.cyanAccent, _humData, isLight),
                     const SizedBox(height: 20),
                     _buildGraphCard("Freshness Index", "${_freshData.last.y.toInt()}%", Colors.greenAccent, _freshData, isLight),
+                    const SizedBox(height: 20),
+                    _buildDoorStatusTimeline(isLight),
                     const SizedBox(height: 20),
                     _buildSystemMonitoringCard(isLight),
                     const SizedBox(height: 100), // Padding for bottom dock
@@ -281,5 +301,97 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
       ),
     );
+  }
+
+  // 🚪 NEW: Creative Animated Door Status Indicator
+  Widget _buildDoorStatusTimeline(bool isLight) {
+    Color subTextColor = isLight ? Colors.black54 : Colors.white70;
+    bool isOpen = _doorData.isNotEmpty && _doorData.last.y == 1.0;
+    
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 500),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isLight ? Colors.white : (isOpen ? Colors.redAccent.withOpacity(0.1) : Colors.white.withOpacity(0.05)),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: isOpen ? Colors.redAccent.withOpacity(0.5) : (isLight ? Colors.transparent : Colors.tealAccent.withOpacity(0.3)), width: 1.5),
+            boxShadow: isOpen 
+              ? [BoxShadow(color: Colors.redAccent.withOpacity(0.2), blurRadius: 20, spreadRadius: 5)]
+              : [BoxShadow(color: Colors.tealAccent.withOpacity(0.05), blurRadius: 10)],
+          ),
+          child: Column(
+            children: [
+              Text("SMART DOOR SENSOR", style: TextStyle(color: subTextColor, fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Outer Ring
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 600),
+                    height: 120,
+                    width: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isOpen ? Colors.redAccent.withOpacity(0.3) : Colors.tealAccent.withOpacity(0.2), 
+                        width: 4
+                      ),
+                    ),
+                  ).animate(onPlay: (c) => c.repeat()).scale(begin: const Offset(1,1), end: const Offset(1.2,1.2), duration: 1.5.seconds).fadeOut(),
+                  
+                  // Inner Core
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.elasticOut,
+                    height: 80,
+                    width: 80,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isOpen ? Colors.redAccent : Colors.tealAccent.withOpacity(0.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isOpen ? Colors.redAccent.withOpacity(0.5) : Colors.tealAccent.withOpacity(0.4),
+                          blurRadius: 20,
+                          spreadRadius: 2,
+                        )
+                      ],
+                    ),
+                    child: Center(
+                      child: Icon(
+                        isOpen ? Icons.door_front_door_outlined : Icons.lock_outline,
+                        color: isOpen ? Colors.white : Colors.tealAccent,
+                        size: 32,
+                      ).animate(target: isOpen ? 1 : 0).shake(hz: 4, curve: Curves.easeInOut),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 300),
+                style: TextStyle(
+                  color: isOpen ? Colors.redAccent : Colors.tealAccent,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 3,
+                ),
+                child: Text(isOpen ? "STATUS: OPEN" : "STATUS: SECURE"),
+              ),
+              if (isOpen)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: const Text("Warning: Cooling loss detected", style: TextStyle(color: Colors.redAccent, fontSize: 12))
+                    .animate(onPlay: (c) => c.repeat(reverse: true)).fadeIn(),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ).animate().fadeIn().slideY(begin: 0.1);
   }
 }

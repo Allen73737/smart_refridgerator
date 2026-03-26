@@ -22,7 +22,7 @@ class AboutScreen extends StatelessWidget {
       scheme: 'mailto',
       path: 'support@smridge.io',
       query: encodeQueryParameters(<String, String>{
-        'subject': 'Smridge App Feedback v1.0.0+1',
+        'subject': 'Smridge App Feedback v1.2.0',
       }),
     );
     if (!await launchUrl(emailLaunchUri)) {
@@ -40,8 +40,9 @@ class AboutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final isLight = themeProvider.currentTheme == ThemeType.light;
-    final isDark = themeProvider.currentTheme == ThemeType.dark;
+    final themeType = themeProvider.currentTheme;
+    final isLight = themeType == ThemeType.light;
+    final isDark = themeType == ThemeType.dark;
 
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
@@ -62,6 +63,7 @@ class AboutScreen extends StatelessWidget {
             color: textColor,
             fontWeight: FontWeight.bold,
             letterSpacing: 2,
+            fontSize: 18,
           ),
         ),
       ),
@@ -84,7 +86,7 @@ class AboutScreen extends StatelessWidget {
 
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
                 children: [
                   // Logo & Version
@@ -95,122 +97,123 @@ class AboutScreen extends StatelessWidget {
                         Hero(
                           tag: 'app_logo',
                           child: Container(
-                            height: 100,
-                            width: 100,
+                            height: 140,
+                            width: 140,
+                            padding: const EdgeInsets.all(25),
                             decoration: BoxDecoration(
+                              color: isLight ? Colors.white.withOpacity(0.5) : accentColor.withOpacity(0.05),
                               shape: BoxShape.circle,
+                              border: Border.all(color: accentColor.withOpacity(0.3), width: 1.5),
                               boxShadow: [
                                 BoxShadow(
-                                  color: accentColor.withOpacity(0.3),
-                                  blurRadius: 30,
-                                  spreadRadius: 5,
+                                  color: accentColor.withOpacity(0.2), 
+                                  blurRadius: 40, 
+                                  spreadRadius: 2
                                 )
                               ],
                             ),
-                            child: ClipOval(
-                              child: Image.asset(
-                                'assets/images/smridge_logo.png',
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Icon(Icons.kitchen, size: 80, color: accentColor),
-                              ),
+                            child: Image.asset(
+                              'assets/images/smridge_logo.png', // Fixed Path
+                            ).animate(onPlay: (c) => c.repeat(reverse: true))
+                             .shimmer(duration: 3000.ms, color: accentColor.withOpacity(0.3)),
+                          ),
+                        ).animate().scale(duration: 800.ms, curve: Curves.easeOutBack),
+                        const SizedBox(height: 25),
+                        Text(
+                          "SMRIDGE ECOSYSTEM",
+                          style: GoogleFonts.orbitron(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                            letterSpacing: 4,
+                          ),
+                        ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: accentColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            "VERSION 1.2.0 PREMIUM",
+                            style: GoogleFonts.orbitron(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: accentColor,
+                              letterSpacing: 1,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 15),
-                        Text(
-                          "v1.0.0+1",
-                          style: GoogleFonts.anta(color: subTextColor, fontSize: 16),
-                        ),
-                        const SizedBox(height: 30),
+                        ).animate().fadeIn(delay: 400.ms),
                       ],
                     ),
-                  ).animate().fadeIn(duration: 600.ms).scale(),
+                  ),
 
-                  // Glass Container for Content
-                  RepaintBoundary(
-                    child: _GlassSection(
+                  const SizedBox(height: 40),
+
+                  // Mission Section
+                  _buildGlassCard(
+                    context,
+                    isLight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _InfoSection(
-                          title: "1. App Overview",
-                          content: "Smridge is a futuristic IoT refrigerator ecosystem designed to revolutionize food management through real-time sensing, automated tracking, and intelligent insights. Our ecosystem bridge connects your kitchen hardware to a seamless digital experience.",
-                          accent: accentColor,
-                          text: textColor,
-                        ),
-                        _InfoDivider(isLight: isLight),
-                        _InfoSection(
-                          title: "2. Developer Info",
-                          content: "Designed and Engineered by the Smridge Systems Team. We focus on high-fidelity IoT solutions and sustainable home technology.",
-                          accent: accentColor,
-                          text: textColor,
-                        ),
-                        _InfoDivider(isLight: isLight),
-                        _InfoSection(
-                          title: "3. Mission & Vision",
-                          content: "Our mission is to eliminate global food waste through precision technology and intuitive data. We envision a future where every household manages resources with 100% efficiency.",
-                          accent: accentColor,
-                          text: textColor,
-                        ),
-                        _InfoDivider(isLight: isLight),
-                        _InfoSection(
-                          title: "4. App Permissions",
-                          content: "• Camera: Barcode recognition & profile settings.\n• Storage: Inventory photo management.\n• Notifications: Critical freshness & sensor alerts.\n• Sensors: Real-time ESP32 hardware synchronization.",
-                          accent: accentColor,
-                          text: textColor,
-                        ),
-                        _InfoDivider(isLight: isLight),
-                        _InfoSection(
-                          title: "5. Credits & Acknowledgements",
-                          content: "Built with Flutter, React, Vite, ESP32 Microcontrollers, and OpenFoodFacts API. Special thanks to the open-source community.",
-                          accent: accentColor,
-                          text: textColor,
-                        ),
-                        _InfoDivider(isLight: isLight),
-                        _InfoSection(
-                          title: "6. Legal Information",
-                          content: "© 2026 Smridge IoT Systems. Smridge is a registered trademark. Terms and Conditions apply to all cloud-synced features.",
-                          accent: accentColor,
-                          text: textColor,
+                        _buildSectionHeader(Icons.auto_awesome, "Our Vision", accentColor),
+                        const SizedBox(height: 12),
+                        Text(
+                          "Smridge is more than just a smart refrigerator; it is the central nervous system of your clinical kitchen. By merging advanced Computer Vision with real-time IoT synchronization, we ensure your nutrition is preserved with zero latency and absolute transparency.",
+                          style: TextStyle(color: subTextColor, fontSize: 15, height: 1.6),
                         ),
                       ],
                     ),
-                  ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
+                  ).animate().fadeIn(delay: 600.ms),
 
                   const SizedBox(height: 20),
 
-                  // Contact & Feedback Section
-                  _GlassSection(
-                    children: [
-                      Text(
-                        "7. Contact & Support",
-                        style: GoogleFonts.anta(
-                          color: accentColor,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                  // Features List
+                  _buildGlassCard(
+                    context,
+                    isLight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader(Icons.memory, "Core Technologies", accentColor),
+                        const SizedBox(height: 15),
+                        _buildFeatureTile(Icons.wifi_tethering, "ESP32 Real-time Telemetry", subTextColor),
+                        _buildFeatureTile(Icons.psychology, "Freshness AI Engine v2.1", subTextColor),
+                        _buildFeatureTile(Icons.layers, "Glassmorphic 3D Interface", subTextColor),
+                        _buildFeatureTile(Icons.security, "On-Device Data Sovereignty", subTextColor),
+                      ],
+                    ),
+                  ).animate().fadeIn(delay: 800.ms),
+
+                  const SizedBox(height: 20),
+
+                  // Contact & Socials
+                  _buildGlassCard(
+                    context,
+                    isLight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          "Developed with ❤️ by the Smridge Team",
+                          style: TextStyle(color: subTextColor, fontSize: 13),
                         ),
-                      ),
-                      const SizedBox(height: 15),
-                      _ActionButton(
-                        icon: Icons.email_outlined,
-                        label: "Report a Bug",
-                        onTap: _sendEmail,
-                        accent: accentColor,
-                      ),
-                      const SizedBox(height: 10),
-                      _ActionButton(
-                        icon: Icons.feedback_outlined,
-                        label: "Send Feedback",
-                        onTap: _sendEmail,
-                        accent: accentColor,
-                      ),
-                      const SizedBox(height: 10),
-                      _ActionButton(
-                        icon: Icons.language_outlined,
-                        label: "Visit Website",
-                        onTap: () => _launchURL("https://www.smridge.io"),
-                        accent: accentColor,
-                      ),
-                    ],
-                  ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.1),
+                        const SizedBox(height: 15),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildSocialIcon(Icons.language, () => _launchURL("https://smridge.io"), accentColor),
+                            const SizedBox(width: 20),
+                            _buildSocialIcon(Icons.email_outlined, _sendEmail, accentColor),
+                            const SizedBox(width: 20),
+                            _buildSocialIcon(Icons.code, () => _launchURL("https://github.com/smridge"), accentColor),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ).animate().fadeIn(delay: 1000.ms),
 
                   const SizedBox(height: 40),
                 ],
@@ -221,125 +224,67 @@ class AboutScreen extends StatelessWidget {
       ),
     );
   }
-}
 
-class _GlassSection extends StatelessWidget {
-  final List<Widget> children;
-  const _GlassSection({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildGlassCard(BuildContext context, bool isLight, {required Widget child}) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           padding: const EdgeInsets.all(24),
-          width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: isLight ? Colors.white.withOpacity(0.7) : Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(color: isLight ? Colors.transparent : Colors.white.withOpacity(0.1)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: children,
-          ),
+          child: child,
         ),
       ),
     );
   }
-}
 
-class _InfoSection extends StatelessWidget {
-  final String title;
-  final String content;
-  final Color accent;
-  final Color text;
-
-  const _InfoSection({
-    required this.title,
-    required this.content,
-    required this.accent,
-    required this.text,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSectionHeader(IconData icon, String title, Color accentColor) {
+    return Row(
       children: [
+        Icon(icon, color: accentColor, size: 20),
+        const SizedBox(width: 10),
         Text(
-          title,
-          style: GoogleFonts.anta(
-            color: accent,
-            fontSize: 18,
+          title.toUpperCase(),
+          style: GoogleFonts.orbitron(
+            fontSize: 16,
             fontWeight: FontWeight.bold,
+            color: accentColor,
+            letterSpacing: 1.5,
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          content,
-          style: TextStyle(color: text.withOpacity(0.8), fontSize: 14, height: 1.5),
         ),
       ],
     );
   }
-}
 
-class _InfoDivider extends StatelessWidget {
-  final bool isLight;
-  const _InfoDivider({required this.isLight});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildFeatureTile(IconData icon, String label, Color textColor) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Divider(color: isLight ? Colors.black12 : Colors.white10),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: textColor.withOpacity(0.5), size: 18),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(color: textColor, fontSize: 14)),
+        ],
+      ),
     );
   }
-}
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color accent;
-
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: accent.withOpacity(0.3)),
-            color: accent.withOpacity(0.05),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: accent, size: 20),
-              const SizedBox(width: 15),
-              Text(
-                label,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Icon(Icons.chevron_right, color: accent.withOpacity(0.5), size: 18),
-            ],
-          ),
+  Widget _buildSocialIcon(IconData icon, VoidCallback onTap, Color accentColor) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: accentColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
         ),
+        child: Icon(icon, color: accentColor, size: 24),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:io';
 import 'dart:ui'; // Added for ImageFilter
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../models/inventory_item.dart';
 import 'status_metrics.dart';
 import '../services/socket_service.dart';
@@ -18,7 +19,8 @@ class Fridge3D extends StatefulWidget {
   final VoidCallback onAddPressed;
   final Function(int) onDelete;
   final Function(int, InventoryItem) onEdit;
-  final Function(InventoryItem)? onItemTap; // NEW
+  final Function(InventoryItem)? onItemTap;
+  final GlobalKey? walkthroughKey; // 🎯
 
   const Fridge3D({
     super.key,
@@ -27,7 +29,8 @@ class Fridge3D extends StatefulWidget {
     required this.onAddPressed,
     required this.onDelete,
     required this.onEdit,
-    this.onItemTap, // NEW
+    this.onItemTap,
+    this.walkthroughKey, // 🎯
   });
 
   @override
@@ -49,6 +52,8 @@ class Fridge3DState extends State<Fridge3D>
   double _panX = 0;
   double _panY = 0;
   bool _isDoorOpen = false; // Tracks logical door state to prevent audio loops
+
+  int get rows => (max(9, widget.inventory.length + 1) / 3).ceil();
 
   @override
   void initState() {
@@ -161,35 +166,7 @@ class Fridge3DState extends State<Fridge3D>
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        if (_isESP32Connected)
-          Positioned(
-            top: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.bolt, color: Colors.greenAccent, size: 14),
-                  const SizedBox(width: 6),
-                  Text(
-                    "ESP32 ONLINE",
-                    style: TextStyle(
-                      color: Colors.greenAccent,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+
 
         AnimatedBuilder(
           animation: Listenable.merge([cameraController, doorController]),
@@ -206,20 +183,18 @@ class Fridge3DState extends State<Fridge3D>
             Matrix4 transform = Matrix4.identity()
               ..setEntry(3, 2, 0.001);
 
-            // ✅ STATUS = cinematic downward zoom + tilt
+            // ✅ STATUS = cinematic downward zoom + tilt (Focus on Upper Fridge)
             if (zoomStatus) {
               transform
-                ..translate(0.0, 130 * t) // Pushed down slightly more
-                ..scale(1 + 0.45 * t)     // Increased zoom for impact
-                ..rotateX(-0.15 * t);     // Cinematic forward tilt
+                ..translate(0.0, 320 * t) // Pushed down heavily to show TOP
+                ..scale(1 + 0.55 * t);     // Very deep zoom for focus
             }
 
             // ✅ INVENTORY = cinematic upward zoom + tilt
             if (zoomInventory) {
               transform
                 ..translate(0.0, -220 * t) // Pushed up slightly more
-                ..scale(1 + 0.5 * t)       // Increased zoom for impact
-                ..rotateX(0.12 * t);       // Cinematic backward tilt
+                ..scale(1 + 0.5 * t);       // Increased zoom for impact
             }
             
             // Allow manual pan hover within limits
@@ -246,24 +221,37 @@ class Fridge3DState extends State<Fridge3D>
                 alignment: Alignment.center,
                 transform: transform,
                 child: SizedBox(
+                  key: widget.walkthroughKey,
                   width: 340,
                   height: fridgeHeight,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-
-                    buildFridgeBody(),
-
-                    buildShelves(),
-
-                    buildLowerDoor(lowerDoorHeight),
-
-                    buildStatusPanel(),
-
-                    buildHinge(),
-
-                      buildListButton(),
-                    ],
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_isDoorOpen || doorController.value > 0.1) {
+                        _closeDoor();
+                      }
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              if (_isDoorOpen || doorController.value > 0.1) {
+                                _closeDoor();
+                              }
+                            },
+                            child: Container(color: Colors.transparent),
+                          ),
+                        ),
+                        buildFridgeBody(),
+                        buildShelves(),
+                        buildLowerDoor(lowerDoorHeight),
+                        buildStatusPanel(),
+                        buildHinge(),
+                        buildListButton(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -348,9 +336,9 @@ class Fridge3DState extends State<Fridge3D>
 
   Widget buildStatusPanel() {
     return const Positioned(
-      top: 60,
-      left: 20,
-      right: 20,
+      top: 25, // Moved UP to stay within the 290px upper door limit
+      left: 30,
+      right: 30,
       child: StatusMetrics(),
     );
   }
@@ -535,9 +523,10 @@ class Fridge3DState extends State<Fridge3D>
       top: 340,
       left: 30,
       right: 30,
+      bottom: 20,
       child: Column(
         children: List.generate(
-            (totalSlots / 3).ceil(),
+            rows,
             (row) => Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
@@ -553,11 +542,14 @@ class Fridge3DState extends State<Fridge3D>
                       int index = row * 3 + col;
 
                       if (index >= totalSlots) {
-                        return const SizedBox(
-                            width: 90, height: 90);
+                        return const SizedBox(width: 90, height: 90);
                       }
 
-                      return buildSlot(index);
+                      // 🎰 DOMINO SHIVER EFFECT
+                      return buildSlot(index)
+                        .animate(target: widget.selectedTab == 2 ? 1 : 0)
+                        .shimmer(delay: (index * 50).ms, duration: 400.ms, color: Colors.white24)
+                        .shake(delay: (index * 50).ms, hz: 4, curve: Curves.easeInOut);
                     }),
                   ),
                 )),

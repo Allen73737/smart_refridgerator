@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart'; // Added for .animate()
-import 'package:google_fonts/google_fonts.dart'; // Added for GoogleFonts
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart'; 
 import 'login_screen.dart';
 import 'home_screen.dart';
 import 'add_device_screen.dart';
@@ -12,6 +13,9 @@ import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import 'pin_entry_screen.dart'; 
+import 'onboarding_screen.dart'; 
+import '../widgets/wave_background.dart';
 
 class SplashIntro extends StatefulWidget {
   const SplashIntro({Key? key}) : super(key: key);
@@ -20,14 +24,7 @@ class SplashIntro extends StatefulWidget {
   State<SplashIntro> createState() => _SplashIntroState();
 }
 
-class _SplashIntroState extends State<SplashIntro>
-    with TickerProviderStateMixin {
-
-  late AnimationController _logoController;
-
-  late Animation<double> _logoSlide;
-  late Animation<double> _logoFade;
-
+class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin {
   String titleText = "";
   String taglineText = "";
 
@@ -37,75 +34,55 @@ class _SplashIntroState extends State<SplashIntro>
   @override
   void initState() {
     super.initState();
-
-    /// Logo Slide Animation
-    _logoController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 2));
-
-    _logoSlide = Tween<double>(begin: 200, end: 0).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeOut),
-    );
-
-    _logoFade = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeIn),
-    );
-
     _startSequence();
   }
 
   Future<void> _startSequence() async {
-    // 🚀 PRE-WARM: Initialize backend and sockets IMMEDIATELY to eliminate lag
     unawaited(ApiService.initializeBackend());
-    unawaited(SocketService.init());
+    SocketService.init();
 
-    await Future.delayed(const Duration(milliseconds: 200));
-
+    await Future.delayed(const Duration(milliseconds: 300));
     AudioService.playLogoReveal();
-    _logoController.forward();
 
-    await Future.delayed(const Duration(milliseconds: 1000));
-
+    // Cinematic delay for build-up
+    await Future.delayed(const Duration(milliseconds: 3000));
     await _startTyping();
 
     if (!mounted) return;
-
     await AudioService.stopLogoReveal();
+
+    final bool seenOnboarding = await SecureStorageService.hasSeenOnboarding();
+    if (!seenOnboarding) {
+      if (!mounted) return;
+      Navigator.pushReplacement(context, FadeSlidePageRoute(page: const OnboardingScreen()));
+      return;
+    }
 
     final token = await SecureStorageService.getToken();
     final isBiometricEnabled = await SecureStorageService.isBiometricEnabled();
 
     if (token != null) {
       if (isBiometricEnabled) {
-        // Go to login page to trigger biometrics
-        Navigator.pushReplacement(
-          context,
-          FadeSlidePageRoute(page: const LoginScreen()),
-        );
+        Navigator.pushReplacement(context, FadeSlidePageRoute(page: const LoginScreen()));
       } else {
-        // 🔹 Background check for device while typing finished
         final devices = await ApiService.getUserDevices(token);
         final bool hasDevice = devices.isNotEmpty;
-
         if (!mounted) return;
-
-        // Direct to home if logged in and biometrics not required
-        Navigator.pushReplacement(
-          context,
-          FadeSlidePageRoute(page: hasDevice ? const HomeScreen() : const AddDeviceScreen()),
-        );
+        final bool pinEnabled = await SecureStorageService.isPinEnabled();
+        if (pinEnabled) {
+          Navigator.pushReplacement(context, FadeSlidePageRoute(page: const PinEntryScreen()));
+        } else {
+          Navigator.pushReplacement(context, FadeSlidePageRoute(page: hasDevice ? const HomeScreen() : const AddDeviceScreen()));
+        }
       }
     } else {
-      // Not logged in, go to login page
-      Navigator.pushReplacement(
-          context,
-          FadeSlidePageRoute(page: const LoginScreen()),
-      );
+      Navigator.pushReplacement(context, FadeSlidePageRoute(page: const LoginScreen()));
     }
   }
 
   Future<void> _startTyping() async {
     for (int i = 0; i < fullTitle.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 120));
+      await Future.delayed(const Duration(milliseconds: 140));
       if (!mounted) return;
       setState(() {
         titleText += fullTitle[i];
@@ -115,18 +92,12 @@ class _SplashIntroState extends State<SplashIntro>
     await Future.delayed(const Duration(milliseconds: 400));
 
     for (int i = 0; i < fullTagline.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 40));
+      await Future.delayed(const Duration(milliseconds: 50));
       if (!mounted) return;
       setState(() {
         taglineText += fullTagline[i];
       });
     }
-  }
-
-  @override
-  void dispose() {
-    _logoController.dispose();
-    super.dispose();
   }
 
   @override
@@ -136,91 +107,151 @@ class _SplashIntroState extends State<SplashIntro>
     final isLight = themeType == ThemeType.light;
     final isDark = themeType == ThemeType.dark;
     
-    final width = MediaQuery.of(context).size.width;
-
-    Color bgColor;
-    if (isLight) {
-      bgColor = const Color(0xFFE2E8F0);
-    } else if (isDark) {
-      bgColor = Colors.black;
-    } else {
-      bgColor = const Color(0xFF071A2F);
-    }
+    Color bgColor = isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : Colors.black);
+    Color accentColor = isLight ? Colors.teal : const Color(0xFF00FFD1);
 
     return Scaffold(
       backgroundColor: bgColor,
       body: Stack(
         children: [
+          // 🌠 1. BASE BACKGROUND (Match HomeScreen)
+          Container(
+            decoration: BoxDecoration(
+              color: bgColor,
+              gradient: (isLight || isDark) ? null : const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFF0F2027),
+                  Color(0xFF203A43),
+                ],
+              ),
+            ),
+          ),
 
-          /// CENTER CONTENT
+          // 🌊 2. WAVE BACKGROUND (Seamless transition to Home)
+          const Positioned.fill(child: RepaintBoundary(child: WaveBackground())),
+
+          // 🌌 3. LUMINOUS VOID: Cinematic Pulse
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.5,
+                  colors: [
+                    accentColor.withOpacity(0.08),
+                    Colors.black.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ).animate(onPlay: (c) => c.repeat(reverse: true))
+             .fadeIn(duration: 2.seconds)
+             .scale(begin: const Offset(1, 1), end: const Offset(1.2, 1.2), duration: 10.seconds),
+          ),
+
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-
-                AnimatedBuilder(
-                  animation: _logoController,
-                  builder: (context, child) {
-                    return Opacity(
-                      opacity: _logoFade.value,
-                      child: Transform.translate(
-                        offset: Offset(0, _logoSlide.value),
-                        child: Column(
-                          children: [
-                            Image.asset(
-                              "assets/images/smridge_logo.png",
-                              width: 140,
-                            ).animate().fadeIn(duration: 800.ms).scale(begin: const Offset(0.8, 0.8)),
-                            const SizedBox(height: 10),
-                            // Emptied static text block to allow the typewriter to shine.
-                          ],
-                        ),
+                // 💎 2. LOGO REVEAL: LIQUID LIGHT ASSEMBLY
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Dynamic Light Burst (Backglow)
+                    Container(
+                      width: 180,
+                      height: 180,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: accentColor.withOpacity(0.4), blurRadius: 100, spreadRadius: 10),
+                          BoxShadow(color: Colors.white.withOpacity(0.1), blurRadius: 50, spreadRadius: -10),
+                        ],
                       ),
-                    );
-                  },
+                    ).animate(onPlay: (c) => c.repeat(reverse: true))
+                     .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.1, 1.1), duration: 3.seconds, curve: Curves.easeInOutSine)
+                     .fadeIn(duration: 2.seconds),
+
+                    // The Core Logo Image with Perspective and Refraction
+                    Image.asset(
+                      "assets/images/smridge_logo.png",
+                      width: 160,
+                    )
+                    .animate()
+                    .fadeIn(duration: 2.seconds)
+                    .scale(begin: const Offset(0.4, 0.4), end: const Offset(1.0, 1.0), duration: 3.seconds, curve: Curves.easeOutQuart)
+                    .custom(
+                      duration: 4.seconds,
+                      builder: (context, value, child) {
+                        return Transform(
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.001) // Refractive depth
+                            ..rotateY(0.6 * (1 - value))
+                            ..rotateZ(0.1 * (1 - value)),
+                          alignment: Alignment.center,
+                          child: child,
+                        );
+                      },
+                    )
+                    .blurXY(begin: 10, end: 0, duration: 2.seconds)
+                    .then() // Subtle Persistent Shimmer
+                    .animate(onPlay: (c) => c.repeat())
+                    .shimmer(duration: 4.seconds, color: Colors.white24, stops: [0.4, 0.5, 0.6]),
+
+                    // 3. COALESCING "DATA LIGHTS" (Instead of scan lines)
+                    ...List.generate(15, (index) {
+                      final delay = (index * 150).ms;
+                      return Container(
+                        width: 2,
+                        height: 2,
+                        decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
+                      ).animate(onPlay: (c) => c.repeat())
+                       .move(
+                         begin: Offset(index % 2 == 0 ? -120 : 120, (index - 7) * 15.0),
+                         end: Offset(0, 0),
+                         duration: 2.seconds,
+                         delay: delay,
+                         curve: Curves.easeOutSine
+                       )
+                       .fadeIn(duration: 500.ms)
+                       .fadeOut(delay: 1500.ms, duration: 500.ms);
+                    }),
+                  ],
                 ),
 
-                const SizedBox(height: 30),
+                const SizedBox(height: 80),
 
-                Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      BoxShadow(
-                        color: (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.2),
-                        blurRadius: 40,
-                        spreadRadius: 5,
-                      )
-                    ],
-                  ),
+                // 🔡 4. TYPOGRAPHIC REVEAL: SMRIDGE
+                ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    colors: [isLight ? Colors.black87 : Colors.white, accentColor, isLight ? Colors.black87 : Colors.white],
+                    stops: const [0.0, 0.5, 1.0],
+                  ).createShader(bounds),
                   child: Text(
                     titleText.toUpperCase(),
                     style: GoogleFonts.orbitron(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      color: isLight ? Colors.black87 : Colors.white,
-                      letterSpacing: 6.0,
-                      shadows: [
-                        Shadow(
-                          color: (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.8),
-                          blurRadius: 30,
-                        ),
-                      ],
+                      fontSize: 64,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 18.0,
                     ),
-                  ),
+                  ).animate().fadeIn(duration: 2.seconds).slideY(begin: 0.2, end: 0, curve: Curves.easeOutQuart),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 20),
 
+                // 📜 5. TAGLINE: CINEMATIC FADE
                 Text(
                   taglineText,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.orbitron(
                     fontSize: 14,
-                    fontWeight: FontWeight.normal,
-                    color: isLight ? Colors.teal.shade700 : Colors.tealAccent,
-                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.w300,
+                    color: isLight ? Colors.black54 : accentColor.withOpacity(0.6),
+                    letterSpacing: 6.0,
                   ),
-                ),
+                ).animate().fadeIn(delay: 2000.ms).blurXY(begin: 10, end: 0, duration: 1500.ms),
               ],
             ),
           ),

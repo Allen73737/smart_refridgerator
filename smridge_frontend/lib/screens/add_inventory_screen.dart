@@ -21,6 +21,7 @@ import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
 import '../services/socket_service.dart';
 import '../services/secure_storage_service.dart';
+import '../widgets/app_walkthrough.dart'; // 🎯
 
 class AddInventoryScreen extends StatefulWidget {
   final Function(InventoryItem) onSave;
@@ -81,14 +82,24 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
   double currentWeight = 0.0;
   Timer? _weightSimulationTimer;
-  String _lastAutoCategory = "Others";
   
   Timer? _aiDebounceTimer;
   bool _isAiDetecting = false;
 
+  // 🎯 Walkthrough Goals
+  final GlobalKey _wtNameKey = GlobalKey();
+  final GlobalKey _wtCategoryKey = GlobalKey();
+  final GlobalKey _wtWeightKey = GlobalKey();
+  final GlobalKey _wtExpiryKey = GlobalKey();
+  final GlobalKey _wtSaveKey = GlobalKey();
+  
+  bool _showWalkthrough = false;
+  List<WalkthroughStep> _currentSteps = [];
+
   @override
   void initState() {
     super.initState();
+    _checkFirstVisit();
 
     final item = widget.existingItem ?? widget.initialItem;
 
@@ -132,6 +143,47 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     }
 
     nameController.addListener(_onNameChanged);
+  }
+
+  Future<void> _checkFirstVisit() async {
+    final visited = await SecureStorageService.getString('visited_manual_entry');
+    if (visited == null && widget.existingItem == null) {
+      _triggerWalkthrough();
+    }
+  }
+
+  void _triggerWalkthrough() {
+    setState(() {
+      _currentSteps = [
+        WalkthroughStep(
+          targetKey: _wtNameKey,
+          title: "Intelligent Naming",
+          description: "Start typing an item name. Our AI will predict the category and estimate a safe expiry date based on thousands of food types.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtCategoryKey,
+          title: "Precise Categorization",
+          description: "Categories help Smridge apply specific freshness algorithms. For example, dairy items have stricter temp-stability requirements.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtWeightKey,
+          title: "Load Cell Sync",
+          description: "Place your item on the physical fridge scale. Smridge will automatically sync the weight here in real-time.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtExpiryKey,
+          title: "Dynamic Expiry",
+          description: "Adjust the expiry date manually or trust our AI-suggested estimates. You'll get a notification 48 hours before this date.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtSaveKey,
+          title: "Cloud Sync",
+          description: "Save your item to sync it with the 3D fridge view and all connected mobile devices.",
+        ),
+      ];
+      _showWalkthrough = true;
+    });
+    SecureStorageService.saveString('visited_manual_entry', 'true');
   }
 
   Future<void> _pickDateTime({required bool isExpiry}) async {
@@ -205,8 +257,36 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       }
     } catch (_) {
     } finally {
-      if (mounted) setState(() => _isAiDetecting = false);
+      if (mounted) {
+        setState(() {
+          _isAiDetecting = false;
+          // ⚖️ AI Weight Simulation (under 5kg)
+          if (weightController.text == "0.0" || weightController.text.isEmpty) {
+            final qty = int.tryParse(quantityController.text) ?? 1;
+            final predicted = _estimateWeight(name, qty);
+            if (predicted > 0) {
+              weightController.text = predicted.toStringAsFixed(3);
+              currentWeight = predicted;
+            }
+          }
+        });
+      }
     }
+  }
+
+  double _estimateWeight(String name, int quantity) {
+    final n = name.toLowerCase();
+    double unitWeight = 0.2; // default 200g
+    if (n.contains('apple')) unitWeight = 0.18;
+    else if (n.contains('banana')) unitWeight = 0.15;
+    else if (n.contains('milk') || n.contains('juice') || n.contains('water')) unitWeight = 1.0; 
+    else if (n.contains('egg')) unitWeight = 0.05;
+    else if (n.contains('bread')) unitWeight = 0.4;
+    else if (n.contains('carrot') || n.contains('potato')) unitWeight = 0.12;
+    else if (n.contains('meat')) unitWeight = 0.5;
+    
+    double total = unitWeight * quantity;
+    return total > 5.0 ? 4.95 : total; 
   }
 
   void _startLoadCellSimulation() {
@@ -216,11 +296,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   void _onHardwareWeightUpdate(dynamic data) {
     if (!mounted) return;
     final rawGrams = (data['weight'] as num?)?.toDouble() ?? 0.0;
-    // ESP32 and simulator both send weight in grams → convert to kg
     final weightKg = rawGrams / 1000.0;
     setState(() {
       currentWeight = weightKg;
-      // Only populate the field if there's a meaningful weight on the scale
       if (rawGrams > 0) {
         weightController.text = weightKg.toStringAsFixed(3);
       }
@@ -265,15 +343,12 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         setState(() => _isFetchingAiImage = false);
         return;
       }
-      
       final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
-      
       final response = await http.post(
         Uri.parse('${ApiService.baseDomain}/api/ai/suggest-image'),
         headers: {'x-auth-token': token, 'Content-Type': 'application/json'},
         body: jsonEncode({'name': name}),
       );
-      
       if (response.statusCode == 200) {
         final suggestedData = jsonDecode(response.body);
         setState(() {
@@ -305,17 +380,13 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           setState(() => _isFetchingAiImage = false);
           return;
         }
-        
         final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
-        
         final request = http.MultipartRequest('POST', Uri.parse('${ApiService.baseDomain}/api/ai/suggest-image'));
         request.headers['x-auth-token'] = token;
         request.fields['name'] = name;
         request.files.add(await http.MultipartFile.fromPath('image', picked.path));
-        
         final streamedResponse = await request.send();
         final response = await http.Response.fromStream(streamedResponse);
-        
         if (response.statusCode == 200) {
           final suggestedData = jsonDecode(response.body);
           if (suggestedData != null && suggestedData['detected_info'] != null) {
@@ -324,17 +395,14 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               if (nameController.text.isEmpty || nameController.text == "food") {
                 nameController.text = info['name'] ?? "";
               }
-              
               if (info['category'] != null && categoryOptions.contains(info['category'])) {
                 categoryController.text = info['category'];
               }
-
               if (info['expiryDays'] != null) {
                 final int days = (info['expiryDays'] as num).toInt();
                 selectedDate = DateTime.now().add(Duration(days: days));
                 expirySource = "estimated";
               }
-
               _aiSuggestedImageUrl = suggestedData['suggested_url'];
               _isFetchingAiImage = false;
             });
@@ -352,6 +420,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   }
 
   Widget _buildGlassInput({
+    Key? key,
     required String label, 
     required TextEditingController controller, 
     TextInputType type = TextInputType.text,
@@ -365,6 +434,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     Color iconColor = isLight ? Colors.teal : Colors.tealAccent;
 
     return Container(
+      key: key, // 🎯
       decoration: BoxDecoration(
         color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(16),
@@ -390,10 +460,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final themeType = themeProvider.currentTheme;
-    final isLight = themeType == ThemeType.light;
-    final isDark = themeType == ThemeType.dark;
-    
+    final isLight = themeProvider.currentTheme == ThemeType.light;
+    final isDark = themeProvider.currentTheme == ThemeType.dark;
     Color textColor = isLight ? Colors.black87 : Colors.white;
 
     return Scaffold(
@@ -451,6 +519,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _buildGlassInput(
+                          key: _wtNameKey, // 🎯
                           label: "Item Name", 
                           controller: nameController, 
                           icon: Icons.fastfood,
@@ -476,12 +545,12 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 controller: brandController, 
                                 icon: Icons.branding_watermark,
                                 isLight: isLight,
-                                hPadding: 12, 
                               ).animate().slideX(begin: -0.1).fade(delay: 50.ms),
                             ),
                             const SizedBox(width: 6), 
                             Expanded(
                               child: Container(
+                                key: _wtCategoryKey, // 🎯
                                 decoration: BoxDecoration(
                                   color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(16),
@@ -530,54 +599,22 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                             const SizedBox(width: 8), 
                             Expanded(
                               child: _buildGlassInput(
+                                key: _wtWeightKey, // 🎯
                                 label: "Weight (kg)", 
                                 controller: weightController, 
                                 type: const TextInputType.numberWithOptions(decimal: true),
                                 icon: Icons.monitor_weight_outlined,
-                                readOnly: false,
                                 isLight: isLight,
-                                onChanged: (val) {
-                                  _weightSimulationTimer?.cancel();
-                                },
+                                onChanged: (val) => _weightSimulationTimer?.cancel(),
                               ).animate().slideX(begin: 0.1).fade(delay: 100.ms),
                             ),
                           ],
                         ),
 
-                        if (widget.existingItem == null)
-                           Padding(
-                             padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
-                             child: Row(
-                               mainAxisAlignment: MainAxisAlignment.end,
-                               children: [
-                                 Text(
-                                    _weightSimulationTimer?.isActive == true 
-                                        ? "Reading Load Cell... ${currentWeight.toStringAsFixed(2)}kg"
-                                        : "Load Cell Locked: ${currentWeight.toStringAsFixed(2)}kg",
-                                     style: TextStyle(
-                                      color: _weightSimulationTimer?.isActive == true ? (isLight ? Colors.teal : Colors.tealAccent) : Colors.grey,
-                                      fontSize: 12,
-                                      fontStyle: FontStyle.italic
-                                    ),
-                                 ).animate(onPlay: (c) => c.repeat(reverse: true)).fade(duration: 800.ms),
-                               ],
-                             ),
-                           ),
-
-                        if (isLiquid) ...[
-                          const SizedBox(height: 15),
-                          _buildGlassInput(
-                            label: "Volume (Litres)",
-                            controller: litresController,
-                            type: const TextInputType.numberWithOptions(decimal: true),
-                            icon: Icons.water_drop,
-                            isLight: isLight,
-                          ).animate().slideX(begin: -0.1).fade(delay: 120.ms),
-                        ],
-
                         const SizedBox(height: 15),
 
                         Container(
+                          key: _wtExpiryKey, // 🎯
                           decoration: BoxDecoration(
                             color: isLight ? Colors.grey.shade200 : Colors.tealAccent.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(16),
@@ -585,41 +622,14 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                           child: ListTile(
                             leading: Icon(Icons.calendar_month, color: isLight ? Colors.teal : Colors.tealAccent),
-                            title: Text(expirySource == "estimated" ? "Expiry Date & Time (Estimated)" : "Expiry Date & Time", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                            title: Text(expirySource == "estimated" ? "Expiry Date (Estimated)" : "Expiry Date", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
                             subtitle: Text(
-                              selectedDate == null ? "Select Date & Time" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedDate!),
+                              selectedDate == null ? "Select Date" : DateFormat('MMM dd, yyyy').format(selectedDate!),
                               style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
                             ),
                             onTap: () => _pickDateTime(isExpiry: true),
                           ),
                         ).animate().slideY(begin: 0.1).fade(delay: 200.ms),
-
-                        const SizedBox(height: 15),
-
-                        Container(
-                          decoration: BoxDecoration(
-                            color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: isLight ? Colors.transparent : Colors.white10),
-                          ),
-                          child: Column(
-                            children: [
-                                ListTile(
-                                  leading: Icon(Icons.alarm_add, color: isLight ? Colors.orange : Colors.orangeAccent),
-                                  title: Text("Custom Reminder (Optional)", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
-                                  subtitle: Text(
-                                    selectedReminderDate == null ? "None" : DateFormat('MMM dd, yyyy - HH:mm').format(selectedReminderDate!),
-                                    style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                                  ),
-                                  trailing: selectedReminderDate != null ? IconButton(
-                                    icon: const Icon(Icons.close, size: 18),
-                                    onPressed: () => setState(() => selectedReminderDate = null),
-                                  ) : null,
-                                  onTap: () => _pickDateTime(isExpiry: false),
-                                ),
-                            ],
-                          ),
-                        ).animate().slideY(begin: 0.1).fade(delay: 220.ms),
 
                         const SizedBox(height: 15),
 
@@ -630,214 +640,37 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           isLight: isLight,
                         ).animate().slideX(begin: -0.1).fade(delay: 250.ms),
                         
-                        const SizedBox(height: 25),
-
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (_isFetchingAiImage)
-                              const Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: Center(
-                                  child: Column(
-                                    children: [
-                                      CircularProgressIndicator(color: Colors.tealAccent),
-                                      SizedBox(height: 10),
-                                      Text("AI is analyzing image...", style: TextStyle(color: Colors.white70)),
-                                    ],
-                                  ),
-                                ),
-                              )
-                            else if (_aiSuggestedImageUrl != null)
-                               Column(
-                                 children: [
-                                   Text("AI detected a generic product. Which image do you prefer?", 
-                                     style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 13)),
-                                   const SizedBox(height: 12),
-                                   Row(
-                                     children: [
-                                       Expanded(
-                                         child: GestureDetector(
-                                           onTap: () => setState(() {
-                                             imageUrl = null; 
-                                             imagePath = _originalLocalImagePath; 
-                                           }),
-                                           child: Column(
-                                             children: [
-                                               ClipRRect(
-                                                 borderRadius: BorderRadius.circular(12),
-                                                 child: Container(
-                                                   height: 80,
-                                                   width: double.infinity,
-                                                   decoration: BoxDecoration(
-                                                     border: Border.all(color: imageUrl == null ? Colors.tealAccent : Colors.transparent, width: 2),
-                                                   ),
-                                                   child: imagePath != null ? Image.file(File(imagePath!), fit: BoxFit.cover) : const Icon(Icons.image),
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text("My Image", style: TextStyle(color: imageUrl == null ? Colors.tealAccent : textColor, fontSize: 10)),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: GestureDetector(
-                                            onTap: () => setState(() {
-                                              imageUrl = _aiSuggestedImageUrl;
-                                              imagePath = null; 
-                                            }),
-                                            child: Column(
-                                              children: [
-                                                Stack(
-                                                  children: [
-                                                    ClipRRect(
-                                                      borderRadius: BorderRadius.circular(12),
-                                                      child: Container(
-                                                        height: 80,
-                                                        width: double.infinity,
-                                                        decoration: BoxDecoration(
-                                                          border: Border.all(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : Colors.transparent, width: 2),
-                                                        ),
-                                                        child: CachedNetworkImage(imageUrl: _aiSuggestedImageUrl!, fit: BoxFit.cover),
-                                                      ),
-                                                    ),
-                                                    Positioned(
-                                                      right: 4,
-                                                      top: 4,
-                                                      child: GestureDetector(
-                                                        onTap: _refreshAiImage,
-                                                        child: Container(
-                                                          padding: const EdgeInsets.all(4),
-                                                          decoration: BoxDecoration(
-                                                            color: Colors.black54,
-                                                            shape: BoxShape.circle,
-                                                          ),
-                                                          child: const Icon(Icons.refresh, color: Colors.white, size: 14),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text("AI Image", style: TextStyle(color: imageUrl == _aiSuggestedImageUrl ? Colors.deepPurpleAccent : textColor, fontSize: 10)),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text("(Tap on image to select)", style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 10, fontStyle: FontStyle.italic)),
-                                  ],
-                                ).animate().fadeIn(),
-
-                            const SizedBox(height: 15),
-
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1),
-                                  foregroundColor: textColor,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                onPressed: () => pickImage(ImageSource.camera),
-                                icon: const Icon(Icons.camera_alt, size: 20),
-                                label: const Text("Camera"),
-                              ),
-                            ),
-                            const SizedBox(width: 15),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1),
-                                  foregroundColor: textColor,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                onPressed: () => pickImage(ImageSource.gallery),
-                                icon: const Icon(Icons.photo, size: 20),
-                                label: const Text("Gallery"),
-                              ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ).animate().fade(delay: 300.ms),
-
-                        const SizedBox(height: 20),
-
-                        if (imagePath != null || imageUrl != null)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: imagePath != null
-                                ? Image.file(
-                                    File(imagePath!),
-                                    height: 160,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  )
-                                : CachedNetworkImage(
-                                    imageUrl: imageUrl!,
-                                    height: 160,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: Colors.tealAccent)),
-                                    errorWidget: (context, url, error) => Container(
-                                      height: 160, 
-                                      color: Colors.white10, 
-                                      child: const Icon(Icons.broken_image, color: Colors.white54, size: 50)
-                                    ),
-                                  ),
-                          ).animate().scale().fade(),
-
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 35),
 
                         SizedBox(
                           height: 55,
                           child: ElevatedButton(
+                            key: _wtSaveKey, // 🎯
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: isLight ? Colors.teal : Colors.tealAccent.withOpacity(0.8),
-                              foregroundColor: Colors.white,
+                              backgroundColor: isLight ? Colors.teal : Colors.tealAccent,
+                              foregroundColor: isLight ? Colors.white : Colors.black,
                               elevation: 10,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             ),
-                            onPressed: () {
-                              if (nameController.text.isEmpty || selectedDate == null) {
+                            onPressed: () async {
+                               if (nameController.text.isEmpty || selectedDate == null) {
                                 SnackbarUtils.showWarning(context, "Name and Expiry Date are required!");
                                 return;
                               }
-
                               final item = InventoryItem(
                                 id: widget.existingItem?.id,
                                 name: nameController.text,
-                                brand: brandController.text.isNotEmpty ? brandController.text : null,
-                                category: categoryController.text.isNotEmpty ? categoryController.text : null,
+                                brand: brandController.text,
+                                category: categoryController.text,
                                 quantity: int.tryParse(quantityController.text) ?? 1,
                                 weight: double.tryParse(weightController.text) ?? currentWeight,
-                                litres: isLiquid && litresController.text.isNotEmpty ? double.tryParse(litresController.text) : null,
-                                notes: notesController.text.isNotEmpty ? notesController.text : null,
-                                isPackaged: isPackaged,
-                                barcode: barcode,
+                                litres: isLiquid ? double.tryParse(litresController.text) : null,
                                 expiryDate: selectedDate!,
-                                expirySource: expirySource,
-                                reminderDate: selectedReminderDate,
                                 imagePath: imagePath,
                                 imageUrl: imageUrl,
-                                dateAdded: widget.existingItem?.dateAdded ?? widget.initialItem?.dateAdded ?? DateTime.now(),
+                                dateAdded: DateTime.now(),
                               );
-
-
                               widget.onSave(item);
-                              final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
-                              AudioService.playSuccess(
-                                index: customizer.inventorySaveSoundIndex, 
-                                customPath: customizer.customInventorySaveSoundPath,
-                              );
                             },
                             child: Text(
                               widget.existingItem == null ? "Save Inventory" : "Update Changes",
@@ -846,7 +679,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                         ).animate().slideY(begin: 0.2).fade(delay: 400.ms),
 
-                        const SizedBox(height: 100), 
+                        const SizedBox(height: 60), 
                       ],
                     ),
                   ),
@@ -854,6 +687,13 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               ),
             ),
           ),
+          
+          if (_showWalkthrough)
+            AppWalkthrough(
+              steps: _currentSteps,
+              onFinish: () => setState(() => _showWalkthrough = false),
+              onSkip: () => setState(() => _showWalkthrough = false),
+            ),
         ],
       ),
     );

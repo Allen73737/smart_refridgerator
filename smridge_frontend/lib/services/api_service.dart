@@ -442,12 +442,18 @@ class ApiService {
     return null;
   }
 
-  static Future<void> logActivity(String action, String details, String token) async {
+  static Future<void> logActivity(String action, String details, String token, {String? color}) async {
     try {
+      final now = DateTime.now();
       await http.post(
         Uri.parse('$baseDomain/api/activities/log'),
         headers: {'Content-Type': 'application/json', 'x-auth-token': token},
-        body: jsonEncode({'action': action, 'details': details}),
+        body: jsonEncode({
+          'action': action, 
+          'details': details,
+          'timestamp': now.toIso8601String(),
+          'color': color ?? '#00F2FF', // Default premium teal
+        }),
       );
     } catch (e) { print("Log Activity Error: $e"); }
   }

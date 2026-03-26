@@ -1,5 +1,7 @@
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../config/app_settings.dart';
 import '../services/socket_service.dart';
 import '../screens/analytics_screen.dart';
@@ -76,11 +78,10 @@ class _StatusMetricsState
     final themeType = themeProvider.currentTheme;
     final isLight = themeType == ThemeType.light;
     
-    Color textColor = isLight ? Colors.black87 : Colors.white;
-
     return AnimatedBuilder(
       animation: pulseController,
       builder: (_, __) {
+        bool danger = isTempDanger() || isHumidityDanger() || isFreshDanger();
 
         return MouseRegion(
           onEnter: (_) => setState(() => _isHovering = true),
@@ -89,104 +90,110 @@ class _StatusMetricsState
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
             child: AnimatedScale(
               scale: _isHovering ? 1.05 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius:
-                      BorderRadius.circular(20),
-                  color: isLight ? Colors.white.withOpacity(0.9) : Colors.black.withOpacity(0.7),
-                  border: Border.all(color: _isHovering ? (isLight ? Colors.teal : Colors.tealAccent).withOpacity(0.5) : Colors.transparent, width: 1.5),
-                  boxShadow: [
-                    if (isTempDanger() ||
-                        isHumidityDanger() ||
-                        isFreshDanger())
-                      BoxShadow(
-                        color: Colors.red
-                            .withOpacity(
-                                (0.5 *
-                                    pulseController
-                                        .value).clamp(0.0, 1.0)),
-                        blurRadius: 30,
-                      )
-                    else if (_isHovering)
-                      BoxShadow(
-                        color: isLight ? Colors.black.withOpacity(0.1) : Colors.tealAccent.withOpacity(0.3),
-                        blurRadius: 20,
-                        spreadRadius: 2,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutBack,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 400),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), // Even tighter
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      color: isLight 
+                        ? Colors.white.withOpacity(0.85) 
+                        : Colors.black.withOpacity(0.6),
+                      border: Border.all(
+                        color: danger 
+                          ? Colors.redAccent.withOpacity(0.5 + 0.3 * pulseController.value)
+                          : (_isHovering ? Colors.tealAccent.withOpacity(0.4) : Colors.white10), 
+                        width: 1.5
                       ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    if (isRealData)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      boxShadow: [
+                        if (danger)
+                          BoxShadow(
+                            color: Colors.redAccent.withOpacity(0.3 * pulseController.value),
+                            blurRadius: 25,
+                            spreadRadius: 2,
+                          )
+                        else if (_isHovering)
+                          BoxShadow(
+                            color: Colors.tealAccent.withOpacity(0.2),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
                           children: [
                             Container(
-                              width: 8,
-                              height: 8,
+                              width: 32,
+                              height: 32,
                               decoration: BoxDecoration(
-                                color: Colors.greenAccent,
+                                color: Colors.tealAccent.withOpacity(0.1),
                                 shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.greenAccent.withOpacity(0.5 * pulseController.value),
-                                    blurRadius: 8,
-                                    spreadRadius: 2,
+                              ),
+                              child: const Icon(Icons.hub_outlined, color: Colors.tealAccent, size: 16),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "SYSTEM MONITOR",
+                                    style: GoogleFonts.orbitron(
+                                      color: Colors.tealAccent,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 2,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "LIVE ESP32",
-                              style: TextStyle(
-                                color: Colors.greenAccent.withOpacity(0.8),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
                           ],
                         ),
-                      ),
-
-              buildMetric(
-                  "Temperature",
-                  "${temperature.toStringAsFixed(1)}°C",
-                  isTempDanger() ? Colors.red : (isLight ? Colors.teal : Colors.greenAccent),
-                  isLight: isLight),
-
-              buildMetric(
-                  "Humidity",
-                  "${humidity.toStringAsFixed(0)}%",
-                  isHumidityDanger() ? Colors.red : (isLight ? Colors.teal : Colors.greenAccent),
-                  isLight: isLight),
-
-              buildMetric(
-                  "Freshness",
-                  "",
-                  Colors.transparent,
-                  customValueWidget: _buildFreshnessIndicators(freshness),
-                  isLight: isLight
+                        const SizedBox(height: 8),
+                        const Divider(color: Colors.white10, height: 1),
+                        const SizedBox(height: 6),
+                        buildMetric(
+                            "Internal Temp",
+                            "${temperature.toStringAsFixed(1)}°C",
+                            isTempDanger() ? Colors.redAccent : Colors.tealAccent,
+                            icon: Icons.thermostat_rounded,
+                            isLight: isLight),
+                        buildMetric(
+                            "Air Humidity",
+                            "${humidity.toStringAsFixed(0)}%",
+                            isHumidityDanger() ? Colors.redAccent : Colors.tealAccent,
+                            icon: Icons.water_drop_rounded,
+                            isLight: isLight),
+                        buildMetric(
+                            "Freshness",
+                            "",
+                            Colors.tealAccent,
+                            icon: Icons.auto_awesome_outlined,
+                            customValueWidget: _buildFreshnessIndicators(freshness),
+                            isLight: isLight),
+                        buildMetric(
+                            "Smart Door",
+                            isDoorOpen ? "OPEN" : "CLOSED",
+                            isDoorOpen ? Colors.orangeAccent : Colors.tealAccent,
+                            icon: Icons.door_front_door_outlined,
+                            isLight: isLight),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-                  
-              buildMetric(
-                  "Door",
-                  isDoorOpen ? "Open" : "Closed",
-                  isDoorOpen ? Colors.orange : (isLight ? Colors.teal : Colors.greenAccent),
-                  isDoorMetric: true,
-                  isLight: isLight
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
-    ));
+        );
       },
     );
   }
@@ -227,43 +234,42 @@ class _StatusMetricsState
     );
   }
 
-  Widget buildMetric(String label, String value, Color color, {bool isDoorMetric = false, Widget? customValueWidget, bool isLight = false}) {
+  Widget buildMetric(String label, String value, Color color, {required IconData icon, Widget? customValueWidget, bool isLight = false}) {
     Color textColor = isLight ? Colors.black87 : Colors.white;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(color: textColor)),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (customValueWidget != null)
-                customValueWidget
-              else
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 300),
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  child: Text(value),
-                ),
-              if (isDoorMetric) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.keyboard_arrow_down, color: isLight ? Colors.teal : Colors.tealAccent, size: 16),
-                ),
-              ]
-            ],
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 16),
           ),
+          const SizedBox(width: 12),
+          Text(
+            label, 
+            style: GoogleFonts.outfit(
+              color: textColor.withOpacity(0.7),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            )
+          ),
+          const Spacer(),
+          if (customValueWidget != null)
+            customValueWidget
+          else
+            Text(
+              value,
+              style: GoogleFonts.outfit(
+                color: color,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
         ],
       ),
     );
