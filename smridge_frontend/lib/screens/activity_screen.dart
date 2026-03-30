@@ -60,23 +60,36 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
   Future<void> _fetchData() async {
     final token = await SecureStorageService.getToken();
-    if (token == null) return;
+    if (token == null) {
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
 
     final period = isTodayView ? 'today' : 'all';
     
-    final results = await Future.wait([
-      ApiService.getActivities(token, period: period),
-      ApiService.getActivityStats(token, period: period),
-    ]);
+    try {
+      final results = await Future.wait([
+        ApiService.getActivities(token, period: period),
+        ApiService.getActivityStats(token, period: period),
+      ]);
 
-    if (mounted) {
-      setState(() {
-        activities = results[0];
-        stats = results[1];
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          activities = results[0];
+          stats = results[1];
+        });
+      }
+    } catch (e) {
+      print("Error fetching activity data: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
+
 
   Future<void> _fetchStats() async {
     final token = await SecureStorageService.getToken();
@@ -104,7 +117,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(isTodayView ? "Today's Activity" : "All Time Activity", 
+            Text(isTodayView ? "Today's Activity" : "My Activity History", 
               style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
             Text(isChartView ? "Distribution View" : "Timeline View",
               style: TextStyle(color: Colors.cyanAccent.withOpacity(0.8), fontSize: 12)),

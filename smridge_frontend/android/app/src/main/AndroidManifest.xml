@@ -1,5 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.smridge_frontend">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <application
         android:label="Smridge"
         android:name="${applicationName}"
@@ -19,14 +26,22 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+        </activity>
+
+        <activity-alias
+            android:name=".Teal"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/launcher_icon"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <activity-alias
-            android:name=".MainActivityWarning"
+            android:name=".Warning"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/launcher_icon_warning"
@@ -38,7 +53,7 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".MainActivityDanger"
+            android:name=".Danger"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/launcher_icon_danger"
@@ -53,6 +68,33 @@
             android:name="com.github.tastelessjolt.flutter_dynamic_icon_plus.FlutterDynamicIconPlusService"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <receiver android:name=".SmridgeWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
+        <receiver android:name=".DuolingoWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_duolingo_info" />
+        </receiver>
+
+        <receiver android:name=".PremiumWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_premium_info" />
+        </receiver>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

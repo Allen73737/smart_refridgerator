@@ -21,6 +21,7 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool isLoading = true;
+  Timer? _loadingTimeout;
   
   List<FlSpot> _tempData = [];
   List<FlSpot> _humData = [];
@@ -35,6 +36,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   void initState() {
     super.initState();
     _initSocketListeners();
+    // ⏱️ Timeout: stop spinner after 10s even if no ESP32 data arrives
+    _loadingTimeout = Timer(const Duration(seconds: 10), () {
+      if (mounted && isLoading) {
+        setState(() {
+          isLoading = false;
+          _syncStatus = "No sensor data — check ESP32 connection";
+        });
+      }
+    });
   }
 
   void _initSocketListeners() {
@@ -85,6 +95,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
+    _loadingTimeout?.cancel();
     SocketService.off('sensor_data', _onHardwareUpdate);
     super.dispose();
   }

@@ -1,6 +1,12 @@
 const { Server } = require("socket.io");
 
 let io;
+const { getSensorScore } = require("./freshnessUtils");
+
+// Store active intervals per socket
+const userIntervals = new Map();
+let lastRealData = null;
+let lastRealTimestamp = 0;
 
 module.exports = {
   init: (httpServer) => {
@@ -16,8 +22,62 @@ module.exports = {
     io.on("connection", (socket) => {
       console.log(`⚡ Socket connected: ${socket.id}`);
 
+      // 🔑 Let client join their personal room for targeted emissions
+      socket.on("register", (userId) => {
+        if (userId) {
+          socket.join(`user_${userId}`);
+          console.log(`🔑 Socket ${socket.id} registered to room user_${userId}`);
+        }
+      });
+
+      // Start per-user simulation if no real data recently
+      const startSimulation = () => {
+        if (userIntervals.has(socket.id)) return;
+
+        const interval = setInterval(() => {
+          const now = Date.now();
+          const isRealRecent = (now - lastRealTimestamp) < 10000;
+
+          if (isRealRecent && lastRealData) {
+            socket.emit("sensor_data", { ...lastRealData, isReal: true });
+          } else {
+            // Generate unique simulated data per user
+            const seed = socket.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            const driftT = (Math.sin(now / 5000 + seed) * 0.5);
+            const driftH = (Math.cos(now / 7000 + seed) * 2.0);
+
+            const simulatedData = {
+              temperature: (4.0 + driftT).toFixed(1),
+              humidity: (60 + driftH).toFixed(1),
+              gasLevel: Math.round(200 + Math.sin(now / 10000 + seed) * 50),
+              doorStatus: "closed",
+              isReal: false,
+              timestamp: now
+            };
+
+            const score = getSensorScore(simulatedData);
+            const freshness = Math.round((score.total / 60) * 100);
+
+            socket.emit("sensor_data", {
+              ...simulatedData,
+              calculatedFreshness: freshness,
+              status: freshness > 60 ? "Fresh" : (freshness > 30 ? "Caution" : "Spoiled")
+            });
+          }
+        }, 1000);
+
+        userIntervals.set(socket.id, interval);
+      };
+
+      startSimulation();
+
       socket.on("disconnect", () => {
         console.log(`🔌 Socket disconnected: ${socket.id}`);
+        const interval = userIntervals.get(socket.id);
+        if (interval) {
+          clearInterval(interval);
+          userIntervals.delete(socket.id);
+        }
       });
     });
 
@@ -29,11 +89,20 @@ module.exports = {
     }
     return io;
   },
-  // Helper to emit events easily
+  // Helper to emit events easily (broadcasts to ALL connected clients)
   emitEvent: (event, data) => {
     if (io) {
+      if (event === "sensor_data" && data.isReal) {
+        lastRealData = data;
+        lastRealTimestamp = Date.now();
+      }
       io.emit(event, data);
-      console.log(`📢 Emitted event: ${event}`, data);
+    }
+  },
+  // Helper to emit to a specific user's room
+  emitToUser: (userId, event, data) => {
+    if (io) {
+      io.to(`user_${userId}`).emit(event, data);
     }
   }
 };

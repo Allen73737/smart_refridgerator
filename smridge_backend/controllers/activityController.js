@@ -3,9 +3,9 @@ const ActivityLog = require("../models/ActivityLog");
 // 🟢 Log a custom activity from the frontend
 exports.logActivity = async (req, res) => {
     try {
-        const { action, details } = req.body;
+        const { action, details, color } = req.body;
         const logActivity = require("../utils/activityLogger");
-        await logActivity(req.user.id, action, 'user', details);
+        await logActivity(req.user.id, action, 'user', details, color);
         res.status(201).json({ message: "Activity logged" });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -36,20 +36,19 @@ exports.getActivities = async (req, res) => {
 // 📊 Get activity statistics for Pie Chart
 exports.getActivityStats = async (req, res) => {
     try {
-        const { period } = req.query; // 'today' or 'all'
-        let matchStage = { userId: req.user.id };
+        const { Types } = require('mongoose');
+        const { period } = req.query; 
+        const userId = new Types.ObjectId(req.user.id);
+        let matchStage = { userId: userId };
 
         if (period === 'today') {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             matchStage.timestamp = { $gte: today };
         }
-
-        const { mongoose } = require('mongoose');
-        const userId = new (require('mongoose').Types.ObjectId)(req.user.id);
         
         const stats = await ActivityLog.aggregate([
-            { $match: { ...matchStage, userId: userId } },
+            { $match: matchStage },
             {
                 $group: {
                     _id: "$action",

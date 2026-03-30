@@ -1,12 +1,22 @@
+# Node.js
 smbridge_backend/node_modules/
 smridge_frontend/node_modules/
-*.txt
-*.log
-.env
 **/node_modules/
-smridge_backend/firebase/serviceAccountKey.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables and secrets
 .env
 smridge_backend/.env
-.DS_Store
+smridge_backend/firebase/serviceAccountKey.json
+smridge_frontend/android/app/google-services.json
 
-浳楲杤彥慢正湥⽤攮癮਍浳楲杤彥慢正湥⽤楦敲慢敳猯牥楶散捁潣湵䭴祥樮潳൮�
+# Scratch scripts
+smridge_backend/check_notifs.js
+smridge_backend/reset_notifs.js
+
+# General ignores
+*.log
+*.txt

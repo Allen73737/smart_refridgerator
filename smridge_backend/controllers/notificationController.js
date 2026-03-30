@@ -3,10 +3,12 @@ const NotificationModel = require("../models/Notification");
 // 🟢 Get active notifications (not archived)
 exports.getNotifications = async (req, res) => {
     try {
+        console.log(`📡 Fetching active notifications for user: ${req.user.id}`);
         const notifications = await NotificationModel.find({
             userId: req.user.id,
-            isArchived: false
-        }).sort({ createdAt: -1 });
+            isArchived: { $ne: true }  // catches false AND missing field
+        }).sort({ createdAt: -1 }).limit(100);
+        console.log(`✅ Found ${notifications.length} active notifications`);
         res.json(notifications);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -16,10 +18,12 @@ exports.getNotifications = async (req, res) => {
 // 🟢 Get notification history (archived)
 exports.getHistory = async (req, res) => {
     try {
+        console.log(`📦 Fetching archived history for user: ${req.user.id}`);
         const notifications = await NotificationModel.find({
             userId: req.user.id,
             isArchived: true
         }).sort({ createdAt: -1 });
+        console.log(`✅ Found ${notifications.length} history items`);
         res.json(notifications);
     } catch (error) {
         res.status(500).json({ message: error.message });

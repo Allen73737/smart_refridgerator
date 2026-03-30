@@ -5,7 +5,7 @@ const User = require("../models/User");
 const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
 
-cron.schedule("*/10 * * * *", async () => {
+cron.schedule("* * * * *", async () => {
   console.log("Running periodic expiry check...");
 
   const now = new Date();
@@ -52,8 +52,9 @@ cron.schedule("*/10 * * * *", async () => {
           type: "expiry"
         });
 
-        // 🔹 Emit Socket Event for real-time UI update
-        socketManager.emitEvent("notification_update", { action: "new", notification });
+        // 🔹 Emit Targeted Socket Event for real-time UI update
+        socketManager.emitToUser(item.userId, "notification_update", { action: "new", notification });
+        console.log(`🔔 Targeted expiry notification pushed to user: ${item.userId}`);
 
         // Update Item to track this interval
         await Item.findByIdAndUpdate(item._id, {
@@ -66,8 +67,35 @@ cron.schedule("*/10 * * * *", async () => {
           await sendPushNotification(user.fcmToken, title, message);
         }
 
-        // Break after first matched interval to avoid multiple pings in one run
         break; 
+      }
+    }
+
+    // 🔔 CUSTOM REMINDER CHECK
+    if (item.reminderDate) {
+      const reminderDate = new Date(item.reminderDate);
+      if (now >= reminderDate && (!item.notifiedIntervals || !item.notifiedIntervals.includes("reminder_sent"))) {
+        const title = "⏰ Custom Reminder";
+        const message = `It's time to check your ${item.name}!`;
+
+        const notification = await NotificationModel.create({
+          userId: item.userId,
+          title,
+          message,
+          type: "reminder"
+        });
+
+        socketManager.emitToUser(item.userId, "notification_update", { action: "new", notification });
+        console.log(`⏰ Targeted reminder pushed to user: ${item.userId}`);
+
+        await Item.findByIdAndUpdate(item._id, {
+          $addToSet: { notifiedIntervals: "reminder_sent" }
+        });
+
+        const user = await User.findById(item.userId);
+        if (user && user.fcmToken) {
+          await sendPushNotification(user.fcmToken, title, message);
+        }
       }
     }
   }

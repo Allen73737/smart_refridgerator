@@ -70,30 +70,48 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
                         const SizedBox(height: 20),
                         _buildSectionTitle("1. Data Sovereignty & AI", isLight),
-                        const SizedBox(height: 10),
                         _buildBody("Smridge employs advanced AI models for freshness estimation and image recognition. All visual data processed during 'Add Inventory' flows is handled on-device. No raw images are stored on our cloud servers unless you explicitly upload them to your personal vault.", isLight),
                         
-                        const SizedBox(height: 20),
                         _buildSectionTitle("2. Sensor Telemetry", isLight),
-                        const SizedBox(height: 10),
-                        _buildBody("Your ESP32 hardware transmits telemetry (Temp, Humidity, VOCs, Weight) to our secure backend. this data is used exclusively to populate your Analytics hub and trigger safety alerts. We do not share your grocery consumption patterns with third-party advertisers.", isLight),
+                        _buildBody("Your ESP32 hardware transmits telemetry (Temp, Humidity, VOCs, Weight) to our secure backend. this data is used exclusively to populate your Analytics hub and trigger safety alerts. We do not share your grocery activity patterns with third-party advertisers.", isLight),
 
-                        const SizedBox(height: 20),
                         _buildSectionTitle("3. Information We Collect", isLight),
-                        const SizedBox(height: 10),
                         _buildBullet("Account Data: Email and hashed authentication credentials.", isLight),
                         _buildBullet("Hardware Identifiers: MAC address and IP of your Smridge Hub for local network synchronization.", isLight),
                         _buildBullet("Inventory Logs: Item metadata including nutritional info retrieved from OpenFoodFacts.", isLight),
 
-                        const SizedBox(height: 20),
                         _buildSectionTitle("4. Push Notifications", isLight),
-                        const SizedBox(height: 10),
                         _buildBody("We use Firebase Cloud Messaging (FCM) to deliver high-priority alerts (e.g. 'Door Left Open' or 'Expiry Warning'). Your device token is shared with Google for delivery purposes only.", isLight),
 
-                        const SizedBox(height: 20),
                         _buildSectionTitle("5. Security Protocols", isLight),
-                        const SizedBox(height: 10),
                         _buildBody("Smridge utilizes AES-256 encryption for data at rest and TLS 1.3 for all data in transit. You can further secure access to your local app instance using the 'App Security PIN' feature in settings.", isLight),
+
+                        _buildSectionTitle("6. Biometric Authentication", isLight),
+                        _buildBody("If enabled, fingerprint or face recognition data is managed by your operating system's secure enclave. Smridge never has access to your actual biometric keys.", isLight),
+
+                        _buildSectionTitle("7. Third-Party Integration", isLight),
+                        _buildBody("We integrate with OpenFoodFacts and Google Gemini API for metadata enrichment. Your data is anonymized before being sent to these services for processing.", isLight),
+
+                        _buildSectionTitle("8. Data Retention Policy", isLight),
+                        _buildBody("Activity logs and inventory history are retained for 12 months to provide accurate activity analytics, after which they are automatically purged from our production database.", isLight),
+
+                        _buildSectionTitle("9. User Rights (GDPR/CCPA)", isLight),
+                        _buildBody("You have the right to request a full export of your data or immediate deletion of your Smridge account via the Advanced Settings menu.", isLight),
+
+                        _buildSectionTitle("10. Children's Privacy", isLight),
+                        _buildBody("Smridge is intended for household managers. We do not knowingly collect or target data from children under the age of 13.", isLight),
+
+                        _buildSectionTitle("11. Updates to Policy", isLight),
+                        _buildBody("We may update this policy periodically to reflect changes in our AI algorithms or hardware support. Continued use of Smridge after updates constitutes acceptance.", isLight),
+
+                        _buildSectionTitle("12. Contact Data Protection Officer", isLight),
+                        _buildBody("Questions regarding this policy or data processing can be directed to privacy@smridge.protocol for independent review by our security commission.", isLight),
+
+                        _buildSectionTitle("13. Multi-Device Synchronization", isLight),
+                        _buildBody("When using multiple mobile devices, your data is synchronized via our secure cloud Relay. Session tokens are uniquely generated and validated per device.", isLight),
+
+                        _buildSectionTitle("14. Cold Storage Architecture", isLight),
+                        _buildBody("Non-active legacy data is moved to 'Cold Storage' after 6 months of inactivity, ensuring your main dashboard remains high-performance while preserving historical insights.", isLight),
 
                         const SizedBox(height: 40),
                         Center(

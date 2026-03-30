@@ -42,10 +42,13 @@ import '../widgets/product_details_overlay.dart'; // New import
 import '../widgets/chat_assistant_overlay.dart'; // New import
 import '../services/socket_service.dart';
 import '../services/icon_service.dart';
+import '../services/haptic_service.dart';
+import '../services/widget_service.dart'; // 🚀 Added
 import '../widgets/app_walkthrough.dart'; // 🎯
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final int initialTab;
+  const HomeScreen({super.key, this.initialTab = 0});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -117,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    selectedTab = widget.initialTab;
     _fetchProfile();
     _loadInventory();
     _fetchNotificationsCount();
@@ -128,6 +132,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _expiryCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _checkExpiryTimers();
     });
+
+    _checkInitialUnreadAlert();
 
     // 🎯 Walkthrough and Network Check
     Future.delayed(1.seconds, () {
@@ -209,6 +215,38 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _checkInitialUnreadAlert() async {
+    await Future.delayed(const Duration(seconds: 3)); // Wait for data to load
+    if (unreadNotifications > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 5),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  "You have $unreadNotifications unread notifications, watch out!",
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: "VIEW",
+            textColor: Colors.white,
+            onPressed: () => setState(() => selectedTab = 4),
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _fetchNotificationsCount() async {
     final token = await SecureStorageService.getToken();
     if (token != null) {
@@ -227,10 +265,11 @@ class _HomeScreenState extends State<HomeScreen> {
           final String id = n['_id']?.toString() ?? "";
           if (id.isNotEmpty && !shownNotifIds.contains(id)) {
             // New unread notification! Show it in the shade
+            final String type = (n['type'] ?? '').toString().toLowerCase();
             await NotificationService().showNotification(
               n['title'] ?? "Smridge Alert",
               n['message'] ?? "",
-              colorHex: n['type'] == 'EXPIRY' ? '#FF007A' : '#00F2FF',
+              colorHex: type == 'expiry' ? '#FF007A' : '#00F2FF',
               context: context,
             );
             shownNotifIds.add(id);
@@ -294,6 +333,26 @@ class _HomeScreenState extends State<HomeScreen> {
           gasLevel = int.tryParse(rawGas) ?? 0;
           fridgeTemp = double.tryParse(rawTemp) ?? 0.0;
         });
+
+        // 📡 Sync to Home Screen Widget
+        final isCritical = fridgeTemp > 5.0 || gasLevel > 200 || _computeFreshness() < 0.3;
+        
+        // 🔄 Dynamic App Icon Switching
+        if (isCritical) {
+           IconService.updateToCriticalIcon();
+        } else {
+           IconService.updateToNormalIcon();
+        }
+
+        WidgetService.updateWidgetData(
+          temperature: fridgeTemp,
+          humidity: double.tryParse(data['humidity']?.toString() ?? "0") ?? 0.0,
+          freshness: _computeFreshness(),
+          doorStatus: (data['doorOpen'] == true) ? "OPEN" : "CLOSED",
+          status: isCritical ? "CRITICAL" : "OPTIMAL",
+          inventoryJson: jsonEncode(inventory.map((i) => i.name).toList()),
+          notificationsJson: jsonEncode(["$unreadNotifications Unread ALERTS"]),
+        );
       }
     });
 
@@ -302,6 +361,19 @@ class _HomeScreenState extends State<HomeScreen> {
       print('🔔 Notification Update Received: $data');
       _fetchNotificationsCount();
     });
+  }
+
+  double _computeFreshness() {
+    if (inventory.isEmpty) return 1.0;
+    final now = DateTime.now();
+    double totalFreshness = 0;
+    for (var item in inventory) {
+       final days = item.expiryDate.difference(now).inDays;
+       if (days > 14) totalFreshness += 1.0;
+       else if (days > 0) totalFreshness += (days / 14.0);
+       else totalFreshness += 0.0;
+    }
+    return totalFreshness / inventory.length;
   }
 
   void _addFood() {
@@ -327,6 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // 🕒 Schedule Background Notifications for Expiry
         _scheduleExpiryAlerts(items);
         IconService.updateAppIcon(items); 
+        WidgetService.updateInventoryCount(items.length); // 🚀 Update Widget
       }
     }
   }
@@ -806,7 +879,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: GoogleFonts.orbitron(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: isLight ? Colors.black87 : Colors.white,
+                  color: isLight ? const Color(0xFF007A7A) : Colors.white, // 🔥 Brand color in drawer
                   letterSpacing: 4.0,
                 ),
               ),
@@ -944,8 +1017,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
           Container(
             decoration: BoxDecoration(
-              color: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : null),
-              gradient: (isLight || isDark) ? null : const LinearGradient(
+              color: isLight ? null : Colors.black,
+              gradient: isLight ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE3F2FD), Color(0xFFBBDEFB)], // Light Ice Blue theme
+              ) : const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
@@ -964,30 +1041,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
           Stack(
             children: [
-              Offstage(
-                offstage: selectedTab > 2,
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(top: 100, bottom: 120),
-                  child: Center(
-                    child: Fridge3D(
-                      key: _fridgeKey,
-                      walkthroughKey: _wtFridgeKey, // 🎯
-                      selectedTab: selectedTab <= 2 ? selectedTab : 0,
-                      inventory: inventory,
-                      onAddPressed: () {
-                        setState(() {
-                          selectedTab = 3;
-                          _addFlowState = AddFlowState.choice;
-                          _scannedItem = null;
-                          _editItemIndex = null;
-                        });
-                      },
-                      onDelete: deleteInventoryItem,
-                      onEdit: editInventoryItem,
-                      onItemTap: (item) {
-                        _triggerAnalysisSync(item);
-                      },
+              ClipRect(
+                child: Offstage(
+                  offstage: selectedTab > 2,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.only(top: 100, bottom: 120),
+                    child: Center(
+                      child: Fridge3D(
+                        key: _fridgeKey,
+                        walkthroughKey: _wtFridgeKey, // 🎯
+                        selectedTab: selectedTab <= 2 ? selectedTab : 0,
+                        inventory: inventory,
+                        onAddPressed: () {
+                          setState(() {
+                            selectedTab = 3;
+                            _addFlowState = AddFlowState.choice;
+                            _scannedItem = null;
+                            _editItemIndex = null;
+                          });
+                        },
+                        onDelete: deleteInventoryItem,
+                        onEdit: editInventoryItem,
+                        onItemTap: (item) {
+                          _triggerAnalysisSync(item);
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -1053,9 +1132,9 @@ class _HomeScreenState extends State<HomeScreen> {
           // BOTTOM DOCK
           //////////////////////////////////////////////////////////
 
-          if (MediaQuery.of(context).viewInsets.bottom == 0 && _addFlowState != AddFlowState.scanner)
+          if (MediaQuery.of(context).viewInsets.bottom == 0 && _addFlowState != AddFlowState.scanner && !_showWalkthrough)
             Positioned(
-            bottom: 20,
+            bottom: MediaQuery.of(context).padding.bottom + 10,
             left: 20,
             right: 20,
             child: AnimatedBottomDock(
@@ -1063,6 +1142,17 @@ class _HomeScreenState extends State<HomeScreen> {
               notificationCount: unreadNotifications, 
               itemKeys: [_wtDockFridgeKey, _wtDockStatusKey, _wtDockInventoryKey, _wtDockAddKey, _wtDockNotificationKey, _wtDockSettingsKey],
               onTap: (index) async {
+                HapticService.medium(); // 🚀 High-Fidelity Navigation Snap
+                
+                // 🔄 Reset Add flow if navigating to any other tab
+                if (index != 3) {
+                  setState(() {
+                    _addFlowState = AddFlowState.choice;
+                    _scannedItem = null;
+                    _editItemIndex = null;
+                  });
+                }
+
                 if (index == 3) {
                   setState(() {
                     _editItemIndex = null;
@@ -1145,7 +1235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
               child: FloatingActionButton(
-                backgroundColor: Colors.tealAccent,
+                backgroundColor: isLight ? const Color(0xFF007A7A) : Colors.tealAccent, // 🔥 Improved light mode contrast
                 elevation: 12,
                 onPressed: () {
                   showModalBottomSheet(
@@ -1206,6 +1296,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     dateAdded: oldItem.dateAdded,
                                     imageUrl: oldItem.imageUrl,
                                     imagePath: oldItem.imagePath,
+                                    notes: oldItem.notes, // 🚀 PRESERVE USER NOTES
                                     expirySource: "AI",
                                   );
                                   updateInventoryItem(updatedItem).then((_) => _loadInventory()); 
@@ -1303,7 +1394,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
-                child: const Icon(Icons.smart_toy, color: Colors.black),
+                child: Icon(Icons.smart_toy, color: isLight ? Colors.white : Colors.black), // 🔥 White icon on dark teal in light mode
               ),
             ).animate().scale(delay: 500.ms).fadeIn(),
           ),
@@ -1387,7 +1478,7 @@ class _HomeScreenState extends State<HomeScreen> {
         WalkthroughStep(
           targetKey: _wtDockAddKey,
           title: "Automatic Tracking",
-          description: "Once added, Smridge uses weight sensors to track consumption patterns and predict expiry dates with clinical accuracy.",
+          description: "Once added, Smridge uses weight sensors to track activity patterns and predict expiry dates with clinical accuracy.",
         ),
       ];
     } else if (index == 5 || index == 4) { // Handling both internal and dock indices
@@ -1411,8 +1502,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _triggerAnalysisSync(InventoryItem item) async {
     if (mounted) {
-      setState(() {
-      });
+      _showProductDetails(item);
     }
   }
 

@@ -16,14 +16,19 @@ import 'services/socket_service.dart'; // 🔹 Added
 import 'services/haptic_service.dart'; // 🔹 New
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
+import 'providers/connectivity_provider.dart';
 import 'config/app_themes.dart';
 import 'config/app_settings.dart';
 
 // 🔥 Background handler (required for notifications when app is closed)
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    // Firebase already initialized by native layer — safe to ignore
+  }
   print("Handling background message: ${message.messageId}");
 }
 
@@ -32,9 +37,14 @@ void main() async {
   await HapticService.init(); // 📳
 
   // 🔥 Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    // Firebase already initialized by native Android layer — safe to ignore
+    debugPrint('Firebase already initialized: $e');
+  }
 
   // 🔥 Register background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -73,6 +83,7 @@ void main() async {
           provider.loadFromPrefs();
           return provider;
         }),
+        ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
       ],
       child: const SmridgeApp(),
     ),
@@ -110,18 +121,22 @@ class SmridgeApp extends StatelessWidget {
       ),
     );
 
-    return MaterialApp(
-      title: 'Smridge',
-      debugShowCheckedModeBanner: false,
-      theme: finalTheme.copyWith(
-        pageTransitionsTheme: const PageTransitionsTheme(
-          builders: {
-            TargetPlatform.android: ZoomPageTransitionsBuilder(),
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-          },
+    return GestureDetector(
+      onTapDown: (_) => HapticService.light(),
+      behavior: HitTestBehavior.translucent,
+      child: MaterialApp(
+        title: 'Smridge',
+        debugShowCheckedModeBanner: false,
+        theme: finalTheme.copyWith(
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.android: ZoomPageTransitionsBuilder(),
+              TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            },
+          ),
         ),
+        home: const SplashIntro(),
       ),
-      home: const SplashIntro(),
     );
   }
 }

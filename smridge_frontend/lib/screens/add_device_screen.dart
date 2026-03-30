@@ -22,7 +22,16 @@ enum SetupStep {
 }
 
 class AddDeviceScreen extends StatefulWidget {
-  const AddDeviceScreen({super.key});
+  final bool isReconnecting;
+  final String? initialSsid;
+  final String? initialPassword;
+
+  const AddDeviceScreen({
+    super.key,
+    this.isReconnecting = false,
+    this.initialSsid,
+    this.initialPassword,
+  });
 
   @override
   State<AddDeviceScreen> createState() => _AddDeviceScreenState();
@@ -47,6 +56,11 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isReconnecting) {
+      _wifiSsidController.text = widget.initialSsid ?? '';
+      _wifiPasswordController.text = widget.initialPassword ?? '';
+      _currentStep = SetupStep.wifiConfig; // Jump to WiFi config directly for reconnection
+    }
     _loadCurrentWifi();
   }
 
@@ -163,9 +177,16 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
             _progressValue = 1.0;
             _progressLogs.add("✅ Device synchronized successfully!");
           });
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) _nextStep(); // Move to Success
         }
+        
+        // 💾 Save credentials locally for future "Premium Reconnect"
+        await SecureStorageService.saveWifiCredentials(
+          _wifiSsidController.text, 
+          _wifiPasswordController.text
+        );
+
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) _nextStep(); // Move to Success
       }
     });
   }

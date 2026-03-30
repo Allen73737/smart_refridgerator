@@ -56,7 +56,9 @@ exports.scanBarcode = async (req, res) => {
         const { barcodeNumber } = req.params;
         if (!barcodeNumber) return res.status(400).json({ message: "Barcode is required" });
 
-        const response = await axios.get(`https://world.openfoodfacts.org/api/v0/product/${barcodeNumber}.json`);
+        const response = await axios.get(`https://world.openfoodfacts.org/api/v0/product/${barcodeNumber}.json`, {
+            headers: { 'User-Agent': 'SmridgeApp - Android - Version 1.0' }
+        });
 
         if (response.data.status !== 1) {
             return res.status(404).json({ message: "Product not found. Please enter details manually." });

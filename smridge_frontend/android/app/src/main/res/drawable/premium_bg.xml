@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:startColor="#081217" 
+        android:endColor="#0F2027"
+        android:angle="270" /> <!-- Vertically down gradient -->
+    <corners android:radius="16dp" />
+    <stroke android:width="2dp" android:color="#00F2FF" /> <!-- Sharp Cyan Border -->
+</shape>

@@ -28,7 +28,7 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
   String titleText = "";
   String taglineText = "";
 
-  final String fullTitle = "Smridge";
+  final String fullTitle = "SMRIDGE";
   final String fullTagline = "Where vision meets refrigeration";
 
   @override
@@ -44,8 +44,8 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
     await Future.delayed(const Duration(milliseconds: 300));
     AudioService.playLogoReveal();
 
-    // Cinematic delay for build-up
-    await Future.delayed(const Duration(milliseconds: 3000));
+    // Cinematic delay for build-up - synchronized with logo rise
+    await Future.delayed(const Duration(milliseconds: 800));
     await _startTyping();
 
     if (!mounted) return;
@@ -63,16 +63,18 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
 
     if (token != null) {
       if (isBiometricEnabled) {
+        // 🔐 Biometric users go to Login screen for auth
         Navigator.pushReplacement(context, FadeSlidePageRoute(page: const LoginScreen()));
       } else {
-        final devices = await ApiService.getUserDevices(token);
-        final bool hasDevice = devices.isNotEmpty;
         if (!mounted) return;
         final bool pinEnabled = await SecureStorageService.isPinEnabled();
         if (pinEnabled) {
+          // 🔒 PIN users go to PIN entry
           Navigator.pushReplacement(context, FadeSlidePageRoute(page: const PinEntryScreen()));
         } else {
-          Navigator.pushReplacement(context, FadeSlidePageRoute(page: hasDevice ? const HomeScreen() : const AddDeviceScreen()));
+          // ✅ Logged-in user → ALWAYS go to HomeScreen
+          // Device pairing is handled inside the app (network-change detection)
+          Navigator.pushReplacement(context, FadeSlidePageRoute(page: const HomeScreen()));
         }
       }
     } else {
@@ -82,7 +84,7 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
 
   Future<void> _startTyping() async {
     for (int i = 0; i < fullTitle.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 140));
+      await Future.delayed(const Duration(milliseconds: 100)); // Faster typing for title
       if (!mounted) return;
       setState(() {
         titleText += fullTitle[i];
@@ -98,6 +100,13 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
         taglineText += fullTagline[i];
       });
     }
+    
+    // Blink cursor at the end
+    for (int i = 0; i < 6; i++) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (!mounted) return;
+        setState(() {}); // trigger rebuild for cursor blink
+    }
   }
 
   @override
@@ -107,8 +116,8 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
     final isLight = themeType == ThemeType.light;
     final isDark = themeType == ThemeType.dark;
     
-    Color bgColor = isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : Colors.black);
-    Color accentColor = isLight ? Colors.teal : const Color(0xFF00FFD1);
+    Color bgColor = const Color(0xFF010A15); // 🌌 Premium Deep Dark Blue (Image 2 Sync)
+    Color accentColor = const Color(0xFF00F2FF); // 💎 Vibrant Cyan Glow
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -179,24 +188,28 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
                       width: 160,
                     )
                     .animate()
-                    .fadeIn(duration: 2.seconds)
-                    .scale(begin: const Offset(0.4, 0.4), end: const Offset(1.0, 1.0), duration: 3.seconds, curve: Curves.easeOutQuart)
+                    .fadeIn(duration: 2500.ms)
+                    .blurXY(begin: 30, end: 0, duration: 2.seconds, curve: Curves.easeOutQuart) // 💎 Mystic Blur-Reveal
+                    .moveY(begin: 300, end: 0, duration: 2500.ms, curve: Curves.easeOutQuart) // 🚀 Cinematic Slide-Up (Increased Distance)
+                    .scale(begin: const Offset(0.2, 0.2), end: const Offset(1.0, 1.0), duration: 2500.ms, curve: Curves.easeOutBack)
                     .custom(
                       duration: 4.seconds,
                       builder: (context, value, child) {
                         return Transform(
                           transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001) // Refractive depth
-                            ..rotateY(0.6 * (1 - value))
-                            ..rotateZ(0.1 * (1 - value)),
+                            ..setEntry(3, 2, 0.001)
+                            ..rotateY(0.8 * (1 - value))
+                            ..rotateZ(0.2 * (1 - value)),
                           alignment: Alignment.center,
                           child: child,
                         );
                       },
                     )
-                    .blurXY(begin: 10, end: 0, duration: 2.seconds)
-                    .then() // Subtle Persistent Shimmer
-                    .animate(onPlay: (c) => c.repeat())
+                    // REMOVED .blurXY (erasing effect) per user request
+                    .then()
+                    .animate(onPlay: (c) => c.repeat(reverse: true))
+                    .moveY(begin: -5, end: 5, duration: 2.seconds, curve: Curves.easeInOutSine)
+                    .rotate(begin: -0.02, end: 0.02, duration: 3.seconds, curve: Curves.easeInOutSine)
                     .shimmer(duration: 4.seconds, color: Colors.white24, stops: [0.4, 0.5, 0.6]),
 
                     // 3. COALESCING "DATA LIGHTS" (Instead of scan lines)
@@ -223,35 +236,36 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
                 const SizedBox(height: 80),
 
                 // 🔡 4. TYPOGRAPHIC REVEAL: SMRIDGE
-                ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [isLight ? Colors.black87 : Colors.white, accentColor, isLight ? Colors.black87 : Colors.white],
-                    stops: const [0.0, 0.5, 1.0],
-                  ).createShader(bounds),
-                  child: Text(
-                    titleText.toUpperCase(),
-                    style: GoogleFonts.orbitron(
-                      fontSize: 64,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      letterSpacing: 18.0,
-                    ),
-                  ).animate().fadeIn(duration: 2.seconds).slideY(begin: 0.2, end: 0, curve: Curves.easeOutQuart),
-                ),
-
-                const SizedBox(height: 20),
-
-                // 📜 5. TAGLINE: CINEMATIC FADE
                 Text(
-                  taglineText,
+                  titleText.toUpperCase() + (titleText.length < fullTitle.length ? "█" : ""),
+                  style: GoogleFonts.orbitron(
+                    fontSize: 48,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 0.0,
+                    shadows: [
+                      Shadow(color: accentColor.withOpacity(0.8), blurRadius: 20), 
+                      Shadow(color: accentColor.withOpacity(0.5), blurRadius: 40),
+                    ],
+                  ),
+                ).animate()
+                 .fadeIn(duration: 500.ms)
+                 .moveY(begin: 100, end: 0, duration: 1000.ms, curve: Curves.easeOutQuart), 
+
+                const SizedBox(height: 15),
+
+                // 📜 5. TAGLINE: CINEMATIC RISE
+                Text(
+                  taglineText + (taglineText.length < fullTagline.length && titleText.length == fullTitle.length ? "█" : (DateTime.now().millisecond % 1000 < 500 && titleText.length == fullTitle.length ? "█" : "")),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.orbitron(
                     fontSize: 14,
-                    fontWeight: FontWeight.w300,
-                    color: isLight ? Colors.black54 : accentColor.withOpacity(0.6),
-                    letterSpacing: 6.0,
+                    fontWeight: FontWeight.w500,
+                    color: accentColor.withOpacity(0.9),
+                    letterSpacing: 0.1, // Near zero for readability
                   ),
-                ).animate().fadeIn(delay: 2000.ms).blurXY(begin: 10, end: 0, duration: 1500.ms),
+                ).animate()
+                 .fadeIn(duration: 500.ms), // 🚀 Vertical Rise
               ],
             ),
           ),

@@ -10,14 +10,16 @@ const sendPushNotification = require("../utils/sendPush");
  * @param {string} action - Action type (e.g., 'LOGIN', 'ADD_ITEM')
  * @param {string} role - Role of the performer ('user' or 'admin')
  * @param {string} details - Human-readable details
+ * @param {string} color - Optional color hex to override default
  */
-const logActivity = async (userId, action, role = 'user', details = '') => {
+const logActivity = async (userId, action, role = 'user', details = '', color = null) => {
     try {
         const log = await ActivityLog.create({
             userId,
             action,
             role,
             details,
+            color,
             timestamp: new Date()
         });
 

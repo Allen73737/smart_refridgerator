@@ -4,6 +4,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../config/app_settings.dart';
 import '../widgets/wave_background.dart';
+import '../widgets/animated_bottom_dock.dart';
+import '../screens/home_screen.dart';
 import '../providers/theme_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -148,6 +150,26 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                   ),
                 ),
               ),
+            ),
+          ),
+          
+          Positioned(
+            bottom: 20,
+            left: 20,
+            right: 20,
+            child: AnimatedBottomDock(
+              currentIndex: 4, // Device config maps to settings tab
+              onTap: (index) {
+                if (index != 4) {
+                   Navigator.pushAndRemoveUntil(
+                     context,
+                     MaterialPageRoute(builder: (context) => HomeScreen(initialTab: index)),
+                     (route) => false,
+                   );
+                } else {
+                   Navigator.pop(context); // just popping if 4 is tapped since we came from there
+                }
+              },
             ),
           ),
         ],

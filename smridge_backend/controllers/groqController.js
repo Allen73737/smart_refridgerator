@@ -20,7 +20,10 @@ async function fetchOFFData(query) {
         } else {
             url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=1`;
         }
-        const resp = await axios.get(url, { timeout: 5000 });
+        const resp = await axios.get(url, { 
+            timeout: 5000,
+            headers: { 'User-Agent': 'SmridgeApp - Android - Version 1.0' }
+        });
         if (resp.data.status === 1 || (resp.data.products && resp.data.products.length > 0)) {
             const product = resp.data.product || resp.data.products[0];
             return {
@@ -42,28 +45,25 @@ async function fetchOFFData(query) {
 // ---------------------------------------------
 // Helper: Fetch best Unsplash image
 // ---------------------------------------------
-async function fetchUnsplashImage(query) {
+async function fetchUnsplashImages(query, count = 5) {
     try {
-        console.log("Searching Unsplash for:", query);
+        console.log(`Searching Unsplash for (${count} images):`, query);
         const resp = await axios.get("https://api.unsplash.com/search/photos", {
-            params: { query, per_page: 5 },
+            params: { query, per_page: count, orientation: 'squarish' },
             headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` },
             timeout: 5000,
         });
         const results = resp.data.results;
         if (results && results.length > 0) {
-            const limit = Math.min(results.length, 3);
-            const randomIndex = Math.floor(Math.random() * limit);
-            const selected = results[randomIndex].urls.regular;
-            console.log(`Unsplash selected (index ${randomIndex}):`, selected);
-            return selected;
+            return results.map(r => r.urls.regular);
         }
         console.warn("Unsplash returned no results for:", query);
     } catch (e) {
-        console.error("Unsplash fetch error:", e.response?.data || e.message);
+        console.error("Unsplash multi-fetch error:", e.response?.data || e.message);
     }
-    return null;
+    return [];
 }
+
 
 // ---------------------------------------------
 // 🟢 UNIFIED FOOD ANALYSIS -> POST /api/ai/analyze
@@ -168,10 +168,17 @@ MANDATE:
             if (item) {
                 item.freshnessScore = analysis.freshness_score;
                 item.category = analysis.category || item.category;
-                const overviewSummary = typeof analysis.overview === "string" 
-                    ? analysis.overview 
-                    : (Array.isArray(analysis.overview) ? analysis.overview.join("\n") : String(analysis.overview));
-                item.notes = (item.notes ? item.notes + "\n" : "") + "AI Analysis: " + overviewSummary.substring(0, 100) + "...";
+                // 🧊 CRITICAL: NEVER overwrite user notes with AI content
+                // notes field is user-only — DO NOT touch it here
+                // Strip any accidental "AI Analysis:" or "Analysis:" content from existing notes
+                if (item.notes && /ai\s+analysis:|analysis:/i.test(item.notes)) {
+                    item.notes = item.notes
+                        .split('\n')
+                        .filter(line => !/ai\s+analysis:|analysis:/i.test(line))
+                        .join('\n')
+                        .trim();
+                    if (!item.notes) item.notes = undefined;
+                }
                 await item.save();
             }
         }
@@ -219,15 +226,19 @@ exports.chatAssistant = async (req, res) => {
 
 CRITICAL DIRECTIVES:
 1. **Smridgey Persona**: Always identify as Smridgey. You are warm, welcoming, and enjoy a bit of lighthearted conversation. Your tone should be scholarly yet very approachable. **In the very first response of a new conversation, always start with: "Hello! I am Smridgey - The Smridge AI Assistant."**
-2. **Structured Output (MANDATORY)**: Use **Markdown formatting** to make your responses readable. 
+2. **Smridge Brand Knowledge**:
+   - **Default Brand**: Smridge is the premium, default brand for all inventory items unless otherwise specified.
+   - **Characteristics**: Smridge stands for IoT-driven sustainability, precise sensor analytics (Temp/Hum/Gas), and artistic 3D visualization.
+   - **Versatility**: Emphasize that "Smridge" isn't just a single fridge; it's a smart system that can be retrofitted and implemented in *any* refrigerator to transform it into a Smridge Smart Fridge.
+3. **Structured Output (MANDATORY)**: Use **Markdown formatting** to make your responses readable. 
    - Use ### for section headers.
    - Use **bold** for important terms or item names.
    - Use bullet points (- or *) for lists.
    - Use emojis to categorize information.
-3. **Conversational Flow**:
+4. **Conversational Flow**:
    - If the user is just chatting, be social but brief.
    - If the user asks about the fridge, provide a structured summary using headers like "### Current Inventory" or "### Sensor Status".
-4. **Action Protocols**: 
+5. **Action Protocols**: 
    - Only provide an [ACTION] tag if a specific system change is needed (Add/Edit/Delete/Navigate).
    - Mention clearly what action you are proposing in the text before the tag.
 
@@ -447,3 +458,37 @@ exports.suggestImage = async (req, res) => {
         res.status(500).json({ message: "Failed to suggest image", error: error.message });
     }
 };
+exports.suggestImages = async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query) return res.status(400).json({ message: "Query required" });
+        
+        // 🚀 Step 1: Specific 3-keyword search
+        const keywords = query.split(" ").slice(0, 3).join(" "); 
+        let images = await fetchUnsplashImages(`${keywords} fresh`, 6);
+        
+        // 🚀 Step 2: Fallback to 1-keyword generic search if first search failed
+        if (images.length === 0) {
+            const generic = query.split(" ")[0];
+            console.log(`Fallback search for: ${generic}`);
+            images = await fetchUnsplashImages(`${generic} food`, 6);
+        }
+
+        // 🚀 Step 3: Absolute fallback if still empty
+        if (images.length === 0) {
+            images = await fetchUnsplashImages("fresh food", 4);
+        }
+
+        res.json({ images });
+    } catch (error) {
+        console.error("Suggest Images Error:", error.message);
+        res.status(500).json({ message: "Failed to suggest images" });
+    }
+};
+
+// Internal replacement for single fetch to maintain legacy support
+async function fetchUnsplashImage(query) {
+    const images = await fetchUnsplashImages(query, 5);
+    if (images.length > 0) return images[Math.floor(Math.random() * Math.min(images.length, 3))];
+    return null;
+}

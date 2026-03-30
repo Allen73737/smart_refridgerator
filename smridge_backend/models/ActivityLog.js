@@ -19,6 +19,9 @@ const activityLogSchema = mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    color: {
+        type: String, // Custom color hex
+    },
 });
 
 module.exports = mongoose.model('ActivityLog', activityLogSchema, 'activitylogs');

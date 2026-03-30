@@ -46,9 +46,9 @@ class InventoryItem {
       name: json['name'] ?? 'Unknown',
       category: json['category'],
       isPackaged: json['packaged'] ?? json['isPackaged'] ?? false,
-      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
-      weight: (json['weight'] as num?)?.toDouble(),
-      litres: (json['litres'] as num?)?.toDouble(),
+      quantity: int.tryParse(json['quantity']?.toString() ?? "") ?? 1,
+      weight: double.tryParse(json['weight']?.toString() ?? "") ?? 0.0,
+      litres: double.tryParse(json['litres']?.toString() ?? "") ?? 0.0,
       barcode: json['barcode'],
       brand: json['brand'],
       expiryDate: json['expiryDate'] != null

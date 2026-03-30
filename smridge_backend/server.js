@@ -74,28 +74,7 @@ const PORT = process.env.PORT || 5001;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} (reach me at ${process.env.IP_OVERRIDE || '0.0.0.0'})`);
   
-  // 🕒 1s Socket Sync (Simulation)
-  setInterval(async () => {
-    try {
-      const sensors = await sensorService.getCurrentSensors();
-      if (!sensors.isReal) {
-        const score = getSensorScore(sensors);
-        const freshness = Math.round((score.total / 60) * 100);
-        let status = "Fresh";
-        if (freshness < 60) status = "Caution";
-        if (freshness < 30) status = "Spoiled";
-
-        socketManager.emitEvent("sensor_data", {
-          ...sensors,
-          calculatedFreshness: freshness,
-          status,
-          isReal: false
-        });
-      }
-    } catch (err) {
-      // Quiet error log to prevent flood
-    }
-  }, 1000);
+  console.log(`Server running on port ${PORT} (reach me at ${process.env.IP_OVERRIDE || '0.0.0.0'})`);
 });
 
 process.on('unhandledRejection', (reason) => {

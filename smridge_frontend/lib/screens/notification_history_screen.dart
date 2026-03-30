@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
@@ -23,6 +24,19 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
   void initState() {
     super.initState();
     _fetchHistory();
+    // 🔔 Real-time: refresh when backend pushes a notification update (e.g., item archived)
+    SocketService.on('notification_update', _onSocketNotification);
+  }
+
+  void _onSocketNotification(dynamic data) {
+    if (!mounted) return;
+    _fetchHistory();
+  }
+
+  @override
+  void dispose() {
+    SocketService.off('notification_update', _onSocketNotification);
+    super.dispose();
   }
 
   String filterType = 'all';

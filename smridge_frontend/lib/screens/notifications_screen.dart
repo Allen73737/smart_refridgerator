@@ -4,10 +4,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 import 'notification_history_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
+import '../services/notification_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -19,19 +21,46 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool isLoading = true;
+  String? _errorMessage;
   List<Map<String, dynamic>> notifications = [];
-  final Set<String> _animatingOutIds = {}; // 🔹 Track items sliding out
+  final Set<String> _animatingOutIds = {}; 
 
   @override
   void initState() {
     super.initState();
     _fetchNotifications();
+    // 🔔 Real-time: refresh when backend pushes a new/updated notification
+    SocketService.on('notification_update', _onSocketNotification);
+  }
+
+  void _onSocketNotification(dynamic data) {
+    if (!mounted) return;
+    // Refresh the full list from API to keep in sync
+    _fetchNotifications();
+  }
+
+  @override
+  void dispose() {
+    SocketService.off('notification_update', _onSocketNotification);
+    super.dispose();
   }
 
   Future<void> _fetchNotifications() async {
+    setState(() {
+      isLoading = true;
+      _errorMessage = null;
+    });
     final token = await SecureStorageService.getToken();
     
-    if (token != null) {
+    if (token == null) {
+      if (mounted) setState(() {
+        isLoading = false;
+        _errorMessage = "Not logged in. Please login to view notifications.";
+      });
+      return;
+    }
+    
+    try {
       final data = await ApiService.getNotifications(token);
       if (mounted) {
         setState(() {
@@ -39,13 +68,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           isLoading = false;
         });
       }
-    } else {
-      if (mounted) setState(() => isLoading = false);
+    } catch (e) {
+      if (mounted) setState(() {
+        isLoading = false;
+        _errorMessage = "Failed to load notifications. Tap to retry.";
+      });
     }
   }
 
   IconData _getIconForType(String type) {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case 'expiry': return Icons.warning_amber_rounded;
       case 'temperature': return Icons.thermostat;
       case 'humidity': return Icons.water_drop;
@@ -56,7 +88,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Color _getColorForType(String type) {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case 'expiry': return Colors.orangeAccent;
       case 'temperature': return Colors.redAccent;
       case 'humidity': return Colors.blueAccent;
@@ -65,6 +97,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       default: return Colors.tealAccent;
     }
   }
+
   String _formatTimestamp(String timestamp) {
     try {
       final dt = DateTime.parse(timestamp).toLocal();
@@ -112,7 +145,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             onPressed: () async {
               final token = await SecureStorageService.getToken();
               if (token != null) {
-                final success = await ApiService.clearNotifications(token); // clearAll in backend archives them
+                final success = await ApiService.clearNotifications(token);
                 if (success) _fetchNotifications();
               }
             },
@@ -133,7 +166,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               onPressed: () async {
                 final token = await SecureStorageService.getToken();
                 if (token != null) {
-                  // 🔹 Android-Style Sequential Slide-Left Animation
                   final itemsToClear = List<Map<String, dynamic>>.from(notifications);
                   for (var i = 0; i < itemsToClear.length; i++) {
                     if (!mounted) break;
@@ -143,7 +175,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     await Future.delayed(const Duration(milliseconds: 80));
                   }
                   
-                  // Wait for last animation to finish
                   await Future.delayed(const Duration(milliseconds: 300));
 
                   if (mounted) {
@@ -153,7 +184,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     });
                   }
                   
-                  // Backend sync
                   await ApiService.clearNotifications(token);
                 }
               },
@@ -175,7 +205,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           const Positioned.fill(child: WaveBackground()),
 
-          isLoading ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent)) 
+          isLoading 
+          ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent)) 
+          : _errorMessage != null ?
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.cloud_off_rounded, color: Colors.tealAccent, size: 64),
+                  const SizedBox(height: 20),
+                  Text(_errorMessage!, textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _fetchNotifications,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Retry"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.tealAccent.withOpacity(0.2),
+                      foregroundColor: Colors.tealAccent,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
           : notifications.isEmpty ? 
           Center(child: Text("No new notifications", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16)))
           : SafeArea(
@@ -196,16 +253,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     direction: DismissDirection.endToStart,
                     onDismissed: (direction) async {
                       final dismissedId = notif['_id'];
-                      // 1. Remove from local list immediately to prevent crash
                       setState(() {
                         notifications.removeAt(index);
                       });
 
                       final token = await SecureStorageService.getToken();
                       if (token != null) {
-                        // 2. Mark as archived in background
                         await ApiService.markNotificationRead(dismissedId, token);
-                        // No need to call _fetchNotifications() here as it would trigger a full reload
                       }
                     },
                     background: Container(
@@ -217,74 +271,111 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                       child: const Icon(Icons.delete_outline, color: Colors.white),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                        child: Container(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isLight 
+                                ? (isRead ? Colors.grey.shade200 : Colors.white) 
+                                : (isRead ? Colors.white.withOpacity(0.05) : const Color(0xFF1E2A33).withOpacity(0.95)),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border(
+                          top: BorderSide(color: isLight ? Colors.white : Colors.white.withOpacity(0.12), width: 1.5),
+                          left: BorderSide(color: isLight ? Colors.white : Colors.white.withOpacity(0.12), width: 1.5),
+                          right: BorderSide(color: isLight ? Colors.white : Colors.white.withOpacity(0.12), width: 1.5),
+                          bottom: BorderSide(color: color.withOpacity(isRead ? 0.2 : 0.8), width: 6), 
+                        ),
+                        boxShadow: isLight || isRead ? [] : [
+                          BoxShadow(
+                            color: color.withOpacity(0.2),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          )
+                        ]
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        leading: Container(
+                          padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isLight 
-                                    ? (isRead ? Colors.grey.shade200 : Colors.white) 
-                                    : (isRead ? Colors.white.withOpacity(0.04) : Colors.white.withOpacity(0.08)),
+                            color: color.withOpacity(isRead ? 0.05 : 0.15),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: isLight ? Colors.transparent : Colors.white.withOpacity(isRead ? 0.05 : 0.15)),
+                            border: Border.all(color: color.withOpacity(isRead ? 0.1 : 0.3), width: 2),
                           ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            leading: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: color.withOpacity(isRead ? 0.1 : 0.2),
-                                shape: BoxShape.circle,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(icon, color: isRead ? color.withOpacity(0.4) : color, size: 28),
+                              if (!isRead)
+                                const Positioned(
+                                  top: -8,
+                                  right: -8,
+                                  child: Text("🧊", style: TextStyle(fontSize: 14)), 
+                                )
+                            ],
+                          ),
+                        ),
+                        title: Text(
+                          notif["title"] ?? "Alert",
+                          style: TextStyle(
+                            color: isLight ? (isRead ? Colors.black54 : Colors.black87) : (isRead ? Colors.white70 : Colors.white), 
+                            fontWeight: FontWeight.w900, 
+                            fontSize: 16,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                notif["message"] ?? "",
+                                style: TextStyle(color: isLight ? (isRead ? Colors.black45 : Colors.black87) : (isRead ? Colors.white54 : Colors.white70), fontSize: 13, height: 1.3),
                               ),
-                              child: Icon(icon, color: isRead ? color.withOpacity(0.6) : color),
-                            ),
-                            title: Text(
-                              notif["title"] ?? "Alert",
-                              style: TextStyle(color: isLight ? (isRead ? Colors.black54 : Colors.black87) : (isRead ? Colors.white70 : Colors.white), fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 5),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      notif["message"] ?? "",
-                                      style: TextStyle(color: isLight ? (isRead ? Colors.black45 : Colors.black54) : (isRead ? Colors.white54 : Colors.white70)),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Align(
-                                      alignment: Alignment.bottomRight,
-                                      child: Text(
-                                        notif["createdAt"] != null 
-                                            ? _formatTimestamp(notif["createdAt"])
-                                            : "",
-                                        style: TextStyle(color: isLight ? Colors.black38 : Colors.white38, fontSize: 10),
-                                      ),
-                                    ),
-                                  ],
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.bottomRight,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(isRead ? 0.05 : 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    notif["createdAt"] != null 
+                                        ? _formatTimestamp(notif["createdAt"])
+                                        : "",
+                                    style: TextStyle(color: color.withOpacity(isRead ? 0.5 : 0.9), fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
                                 ),
                               ),
-                              trailing: !isRead ? IconButton(
-                                icon: Icon(Icons.done_all, color: color, size: 20),
-                                onPressed: () async {
-                                  final token = await SecureStorageService.getToken();
-                                  if (token != null) {
-                                    await ApiService.markNotificationRead(notif['_id'], token);
-                                    _fetchNotifications();
-                                  }
-                                },
-                                tooltip: "Mark as Read",
-                              ) : Icon(Icons.done_all, color: color.withOpacity(0.5), size: 18),
-                            ),
+                            ],
+                          ),
                         ),
+                        trailing: !isRead ? IconButton(
+                          icon: Icon(Icons.done_all, color: color, size: 24),
+                          onPressed: () async {
+                            final token = await SecureStorageService.getToken();
+                            if (token != null) {
+                              await ApiService.markNotificationRead(notif['_id'], token);
+                              _fetchNotifications();
+                            }
+                          },
+                          tooltip: "Mark as Read",
+                        ).animate().scale(duration: 300.ms, curve: Curves.elasticOut)
+                        : Icon(Icons.done_all, color: color.withOpacity(0.3), size: 20),
                       ),
                     ),
-                  ).animate(
-                    target: _animatingOutIds.contains(notif['_id']) ? 1 : 0,
-                  ).slideX(begin: 0, end: -1.5, duration: 400.ms, curve: Curves.easeInCubic)
-                   .fade(begin: 1.0, end: 0, duration: 300.ms)
-                   .animate().fade(delay: (100 * (index % 5)).ms).slideX(begin: 0.1),
-                );
+                  ),
+                ).animate(
+                  target: _animatingOutIds.contains(notif['_id']) ? 1 : 0,
+                )
+                 .fadeIn(delay: (50 * index).ms, duration: 500.ms)
+                 .scale(delay: (50 * index).ms, duration: 600.ms, curve: Curves.elasticOut, begin: const Offset(0.8, 0.8))
+                 .then(delay: 0.ms)
+                 .slideX(end: -1.5, duration: 400.ms, curve: Curves.easeInCubic)
+                 .fadeOut(duration: 300.ms);
               },
             ),
           ),

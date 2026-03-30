@@ -134,6 +134,16 @@ exports.updateItem = async (req, res) => {
 
     const updateData = { ...req.body };
     
+    // 🧹 SANITIZE NOTES: Strip AI artifacts
+    if (updateData.notes && /ai\s+analysis:|analysis:/i.test(updateData.notes)) {
+      updateData.notes = updateData.notes
+          .split('\n')
+          .filter(line => !/ai\s+analysis:|analysis:/i.test(line))
+          .join('\n')
+          .trim();
+      if (!updateData.notes) updateData.notes = "";
+    }
+    
     if (req.file && (!updateData.image || updateData.image === '')) {
       console.log("New Photo Received for Update:", req.file.path);
       if (req.file.isLocal) {
@@ -145,9 +155,17 @@ exports.updateItem = async (req, res) => {
       }
     }
 
+    let updateQuery = updateData;
+    if (updateData.reminderDate !== undefined) {
+      updateQuery = {
+        $set: updateData,
+        $pull: { notifiedIntervals: "reminder_sent" }
+      };
+    }
+
     const updatedItem = await Item.findByIdAndUpdate(
       req.params.id,
-      updateData,
+      updateQuery,
       { new: true }
     );
 

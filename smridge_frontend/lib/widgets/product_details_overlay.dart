@@ -102,9 +102,9 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
     
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime.now(),
-      lastDate: widget.item.expiryDate,
+      initialDate: (initial.isBefore(DateTime.now()) && !initial.isAtSameMomentAs(DateTime.now())) ? DateTime.now() : initial,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)), // 🚀 Allow past date Selection for Expired items
+      lastDate: widget.item.expiryDate.isBefore(DateTime.now()) ? DateTime.now().add(const Duration(days: 365)) : widget.item.expiryDate,
       helpText: "Set Reminder Date",
     );
 
@@ -145,6 +145,11 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
 
             if (success && mounted) {
               try {
+                // 🗑️ Clear existing notification for this item first
+                await NotificationService().cancelNotification(_item.id.hashCode + 20000); 
+                await NotificationService().cancelNotification(_item.id.hashCode + 30000);
+                await NotificationService().cancelNotification(_item.id.hashCode + 50000);
+
                 await NotificationService().scheduleLocalReminder(
                   _item.id.hashCode,
                   _item.name,
@@ -178,14 +183,20 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
     }
   }
 
-  // 🖼️ AI Image Search Dialog
+  // 🖼️ AI Smart Image Suggestion Dialog
   Future<void> _showImageSearchDialog(bool isLight) async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) return;
+
+    // 🚀 Use the AI-refined query if available, otherwise fallback to item name
+    final String query = _groqAnalysis?['unsplash_search_query'] ?? _item.name;
+
     setState(() => _isLoadingAnalysis = true);
-    final results = await ApiService.searchImages(_item.name);
+    final results = await ApiService.suggestImages(query, token);
     setState(() => _isLoadingAnalysis = false);
 
     if (results.isEmpty && mounted) {
-      SnackbarUtils.showError(context, "No images found for '${_item.name}'");
+      SnackbarUtils.showError(context, "No premium visuals found for '$query'");
       return;
     }
 
@@ -193,38 +204,78 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.85),
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E2A33),
-        title: Text("Select Image for ${_item.name}", style: const TextStyle(color: Colors.white, fontSize: 16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+        title: Column(
+          children: [
+            const Text("💎 Smart Suggestions", style: TextStyle(color: Colors.tealAccent, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+            const SizedBox(height: 4),
+            Text("Context: $query", style: TextStyle(color: Colors.white60, fontSize: 10, letterSpacing: 1.2)),
+          ],
+        ),
         content: SizedBox(
-          width: double.maxFinite,
-          child: GridView.builder(
-            shrinkWrap: true,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10),
-            itemCount: results.length,
-            itemBuilder: (context, i) => GestureDetector(
-              onTap: () async {
-                final token = await SecureStorageService.getToken();
-                if (token != null) {
-                  final newItem = _item.copyWith(imageUrl: results[i], imagePath: ""); // Clear local path if switching to URL
-                  final success = await ApiService.updateFood(newItem, token);
-                  if (success && mounted) {
-                    setState(() => _item = newItem);
-                    Navigator.pop(context);
-                    SnackbarUtils.showSuccess(context, "Product image updated! ✨");
-                  }
-                }
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CachedNetworkImage(imageUrl: results[i], fit: BoxFit.cover),
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Flexible(
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2, 
+                    crossAxisSpacing: 12, 
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1,
+                  ),
+                  itemCount: results.length,
+                  itemBuilder: (context, i) => GestureDetector(
+                    onTap: () async {
+                      final token = await SecureStorageService.getToken();
+                      if (token != null) {
+                        final newItem = _item.copyWith(imageUrl: results[i], imagePath: ""); 
+                        final success = await ApiService.updateFood(newItem, token);
+                        if (success && mounted) {
+                          setState(() => _item = newItem);
+                          Navigator.pop(context);
+                          SnackbarUtils.showSuccess(context, "Product profile upgraded! ✨");
+                        }
+                      }
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
+                        ]
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: CachedNetworkImage(
+                          imageUrl: results[i], 
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(color: Colors.white.withOpacity(0.05)),
+                        ),
+                      ),
+                    ).animate().scale(delay: (i * 100).ms, curve: Curves.elasticOut),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 15),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+
 
   Color _freshnessColor(int score) {
     if (score >= 80) return Colors.green;
@@ -895,7 +946,15 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                   if (_item.reminderDate != null)
                     _buildModernInfoRow(Icons.alarm, "Reminder", DateFormat('MMM dd, yyyy - HH:mm').format(_item.reminderDate!), textColor, isLight),
                   if (_item.notes != null && _item.notes!.isNotEmpty)
-                    _buildModernInfoRow(Icons.notes, "Notes", _item.notes!, textColor, isLight),
+                    () {
+                      final cleanNotes = _item.notes!
+                          .split('\n')
+                          .where((line) => !line.toLowerCase().contains('ai analysis:') && !line.toLowerCase().contains('analysis:'))
+                          .join('\n')
+                          .trim();
+                      if (cleanNotes.isEmpty) return const SizedBox.shrink();
+                      return _buildModernInfoRow(Icons.notes, "Personal Notes", cleanNotes, textColor, isLight);
+                    }(),
                   
                   // 🔹 Local Reminder Sync Action
                   Padding(
@@ -983,12 +1042,14 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
             child: Icon(icon, size: 20, color: isLight ? Colors.teal : Colors.tealAccent),
           ),
           const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(color: isLight ? Colors.black54 : Colors.white54, fontSize: 13)),
-              Text(value, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(color: isLight ? Colors.black54 : Colors.white54, fontSize: 13)),
+                Text(value, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600)),
+              ],
+            ),
           ),
         ],
       ),

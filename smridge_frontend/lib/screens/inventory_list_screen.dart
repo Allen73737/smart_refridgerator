@@ -287,8 +287,11 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           behavior: HitTestBehavior.opaque,
           onLongPress: () => _toggleSelection(index),
           onTap: () {
-            if (_isSelectionMode) _toggleSelection(index);
-            else if (widget.onItemTap != null) widget.onItemTap!(item);
+            if (_isSelectionMode) {
+              _toggleSelection(index);
+            } else if (widget.onItemTap != null) {
+              widget.onItemTap!(item);
+            }
           },
           child: Container(
             height: 220,
@@ -315,13 +318,19 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                     height: double.infinity,
                     child: Stack(
                       children: [
-                        Positioned.fill(child: _buildItemImage(item, freshnessColor, size: double.infinity, radius: 0)),
-                        if (isSelected) Container(color: Colors.tealAccent.withOpacity(0.3), child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 40))),
+                        Positioned.fill(
+                          child: _buildItemImage(item, freshnessColor, size: double.infinity, radius: 0),
+                        ),
+                        if (isSelected) 
+                          Container(
+                            color: Colors.tealAccent.withOpacity(0.3), 
+                            child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 40)),
+                          ),
                       ],
                     ),
                   ),
                   
-                  // INFO SECTIONS (RIGHT, HORIZONTAL SWIPE)
+                  // INFO SECTIONS (RIGHT)
                   Expanded(
                     child: Stack(
                       children: [
@@ -332,7 +341,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                             _buildCardSlide3(item, textColor),
                           ],
                         ),
-                        // Tiny indicators at the bottom
                         Positioned(
                           bottom: 15,
                           left: 0,
@@ -340,7 +348,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              _buildMiniDot(true), // Just showing it can have slides
+                              _buildMiniDot(true),
                               const SizedBox(width: 4),
                               _buildMiniDot(false),
                               const SizedBox(width: 4),
@@ -355,7 +363,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               ),
             ),
           ),
-        ).animate().scale(begin: const Offset(0.01, 0.01), delay: (100 * (index % 5)).ms, duration: 400.ms, curve: Curves.easeOutBack);
+        ).animate().scale(
+          begin: const Offset(0.01, 0.01), 
+          delay: (100 * (index % 5)).ms, 
+          duration: 400.ms, 
+          curve: Curves.easeOutBack,
+        );
       },
     );
   }
@@ -404,9 +417,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   }
 
   Widget _buildCardSlide3(InventoryItem item, Color textColor) {
-    // Clean up notes for a more premium look
-    String displayNotes = item.notes ?? "No additional insights available for this item.";
-    displayNotes = displayNotes.replaceAll(RegExp(r'AI Analysis:\s*'), '• ');
+    String displayNotes = item.notes ?? "";
 
     return Padding(
       padding: const EdgeInsets.all(16),

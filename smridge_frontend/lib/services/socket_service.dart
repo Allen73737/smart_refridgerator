@@ -1,9 +1,13 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'api_service.dart';
+import 'secure_storage_service.dart';
 
 class SocketService {
   static IO.Socket? _socket;
   static String? _currentUrl;
+  
+  // 📚 Listener Registry: Keeps track of event handlers to re-apply them on reconnect/re-init
+  static final Map<String, List<Function(dynamic)>> _registry = {};
 
   static void init() {
     String url = ApiService.baseDomain;
@@ -39,8 +43,21 @@ class SocketService {
       'forceNew': true,
     });
 
-    _socket!.onConnect((_) {
+    // 💡 RE-APPLY REGISTERED LISTENERS
+    _registry.forEach((event, handlers) {
+      for (var handler in handlers) {
+        _socket!.on(event, handler);
+      }
+    });
+
+    _socket!.onConnect((_) async {
       print('⚡ Socket connected: ${_socket!.id}');
+      // 🔑 Register user ID so backend can send targeted events
+      final userId = await SecureStorageService.getUserId();
+      if (userId != null) {
+        _socket!.emit('register', userId);
+        print('🔑 Registered socket room for user: $userId');
+      }
     });
 
     _socket!.onDisconnect((_) {
@@ -71,13 +88,20 @@ class SocketService {
 
   static void on(String event, Function(dynamic) handler) {
     if (_socket == null) init();
-    _socket!.on(event, handler);
+    
+    // 1. Add to local registry
+    _registry.putIfAbsent(event, () => []).add(handler);
+    
+    // 2. Add to active socket
+    _socket?.on(event, handler);
   }
 
   static void off(String event, [Function(dynamic)? handler]) {
     if (handler != null) {
+      _registry[event]?.remove(handler);
       _socket?.off(event, handler);
     } else {
+      _registry.remove(event);
       _socket?.off(event);
     }
   }
@@ -87,5 +111,6 @@ class SocketService {
     _socket?.disconnect();
     _socket = null;
     _currentUrl = null;
+    _registry.clear();
   }
 }

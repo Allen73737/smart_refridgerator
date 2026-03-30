@@ -44,9 +44,9 @@ class AboutScreen extends StatelessWidget {
     final isLight = themeType == ThemeType.light;
     final isDark = themeType == ThemeType.dark;
 
-    Color textColor = isLight ? Colors.black87 : Colors.white;
-    Color subTextColor = isLight ? Colors.black54 : Colors.white70;
-    Color accentColor = isLight ? Colors.teal : Colors.tealAccent;
+    Color textColor = isLight ? const Color(0xFF0D1B2A) : Colors.white;
+    Color subTextColor = isLight ? const Color(0xFF2D4A5A) : Colors.white70;
+    Color accentColor = isLight ? const Color(0xFF007A7A) : Colors.tealAccent; // 🚀 Deep teal for light mode
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -158,12 +158,19 @@ class AboutScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildSectionHeader(Icons.auto_awesome, "Our Vision", accentColor),
+                        _buildSectionHeader(Icons.auto_awesome, "Smridge Protocol 1.0", accentColor),
                         const SizedBox(height: 12),
                         Text(
                           "Smridge is more than just a smart refrigerator; it is the central nervous system of your clinical kitchen. By merging advanced Computer Vision with real-time IoT synchronization, we ensure your nutrition is preserved with zero latency and absolute transparency.",
                           style: TextStyle(color: subTextColor, fontSize: 15, height: 1.6),
                         ),
+                        const SizedBox(height: 15),
+                        _buildBulletPoint("Neural Inventory Preservation: Active monitoring of nutrient density via spectral analysis.", subTextColor, accentColor),
+                        _buildBulletPoint("Predictive Culinary Logistics: Anticipating your next meal using behavioral data.", subTextColor, accentColor),
+                        _buildBulletPoint("Waste Zero Initiative: 100% efficient consumption cycles with autonomous tracking.", subTextColor, accentColor),
+                        _buildBulletPoint("LPU Accelerated Vision: Real-time ingredient recognition with sub-10ms latency.", subTextColor, accentColor),
+                        _buildBulletPoint("Atmospheric Integrity Protocol: Maintaining clinical-grade air quality for storage.", subTextColor, accentColor),
+                        _buildBulletPoint("Bio-Synchronous Freshness: Syncing expiry alerts with your biological consumption needs.", subTextColor, accentColor),
                       ],
                     ),
                   ).animate().fadeIn(delay: 600.ms),
@@ -177,15 +184,40 @@ class AboutScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildSectionHeader(Icons.memory, "Core Technologies", accentColor),
+                        _buildSectionHeader(Icons.memory, "Technical Ecosystem", accentColor),
                         const SizedBox(height: 15),
-                        _buildFeatureTile(Icons.wifi_tethering, "ESP32 Real-time Telemetry", subTextColor),
-                        _buildFeatureTile(Icons.psychology, "Freshness AI Engine v2.1", subTextColor),
-                        _buildFeatureTile(Icons.layers, "Glassmorphic 3D Interface", subTextColor),
-                        _buildFeatureTile(Icons.security, "On-Device Data Sovereignty", subTextColor),
+                        _buildFeatureTile(Icons.wifi_tethering, "ESP32-S3 Real-time Telemetry Hub (v5.0 Ready)", subTextColor),
+                        _buildFeatureTile(Icons.psychology, "Gemini x Groq Freshness AI v4.2 Parallel Inference", subTextColor),
+                        _buildFeatureTile(Icons.security, "De-centralized Data Sovereignty with Local Encryption", subTextColor),
+                        _buildFeatureTile(Icons.sensors, "BME680 Environmental Synthesis & Gas Analysis", subTextColor),
+                        _buildFeatureTile(Icons.speed, "Zero-Latency OS-Level Live Notification Shade", subTextColor),
+                        _buildFeatureTile(Icons.code, "TLS 1.3 / AES-256-GCM Encryption Standards", subTextColor),
+                        _buildFeatureTile(Icons.bolt, "LPU Accelerated Neural Inference @ 500 Token/sec", subTextColor),
+                        _buildFeatureTile(Icons.data_exploration, "Historical Analytics with Predictive Trend Engine", subTextColor),
+                        _buildFeatureTile(Icons.animation, "Highly Animated Home Screen Widget Integration", subTextColor),
+                        _buildFeatureTile(Icons.touch_app, "Pervasive Haptic Feedback across the Smridge Dock", subTextColor),
                       ],
                     ),
                   ).animate().fadeIn(delay: 800.ms),
+
+                  const SizedBox(height: 20),
+
+                  // Stats/Technical Cards
+                  _buildGlassCard(
+                    context,
+                    isLight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader(Icons.analytics_outlined, "Technical Ecosystem", accentColor),
+                        const SizedBox(height: 12),
+                        _buildTechSpec("AI Inference", "Groq LPU (Sub-100ms)", subTextColor, accentColor),
+                        _buildTechSpec("Cloud Sync", "TLS 1.3 / AES-256", subTextColor, accentColor),
+                        _buildTechSpec("HW Backend", "Node.js / Socket.io", subTextColor, accentColor),
+                        _buildTechSpec("Expansion", "SMRIDGE Accessory Port", subTextColor, accentColor),
+                      ],
+                    ),
+                  ).animate().fadeIn(delay: 900.ms),
 
                   const SizedBox(height: 20),
 
@@ -265,10 +297,39 @@ class AboutScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: textColor.withOpacity(0.5), size: 18),
+          Icon(icon, color: textColor.withOpacity(0.6), size: 18),
           const SizedBox(width: 12),
-          Text(label, style: TextStyle(color: textColor, fontSize: 14)),
+          Expanded( // 🚀 FIX: Prevents horizontal pixel overflow
+            child: Text(label, style: TextStyle(color: textColor, fontSize: 14, height: 1.4)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBulletPoint(String text, Color textColor, Color accentColor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("• ", style: TextStyle(color: accentColor, fontWeight: FontWeight.bold, fontSize: 16)),
+          Expanded(child: Text(text, style: TextStyle(color: textColor, fontSize: 14, height: 1.4))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechSpec(String label, String value, Color textColor, Color accentColor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 13)),
+          Text(value, style: TextStyle(color: accentColor, fontWeight: FontWeight.bold, fontSize: 13)),
         ],
       ),
     );

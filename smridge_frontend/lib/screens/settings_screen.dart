@@ -9,7 +9,9 @@ import 'help_support_screen.dart';
 import 'theme_settings_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/connectivity_provider.dart';
 import 'advanced_settings_screen.dart';
+import 'add_device_screen.dart';
 import 'device_config_screen.dart';
 import 'about_screen.dart';
 import 'notification_history_screen.dart';
@@ -80,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         WalkthroughStep(
           targetKey: _wtActivityKey,
-          title: "Consumption Logs",
+          title: "My Activity",
           description: "Review your detailed inventory history and AI-detected waste metrics.",
         ),
         WalkthroughStep(
@@ -259,7 +261,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         _buildSettingsTile(
                           Icons.insights, 
-                          "My Consumption Activity", 
+                          "My Activity", 
                           isLight,
                           key: _wtActivityKey,
                           onTap: () {
@@ -319,6 +321,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               if (val) HapticService.medium();
                             },
                           ),
+                        ),
+
+                        const SizedBox(height: 30),
+                        
+                        // 📡 Connectivity Section
+                        Text("SMRIDGE CONNECTIVITY", style: TextStyle(color: isLight ? Colors.black54 : Colors.white54, fontSize: 13, letterSpacing: 1, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 15),
+                        
+                        Consumer<ConnectivityProvider>(
+                          builder: (context, connectivity, child) {
+                            final isConnected = connectivity.isConnected;
+                            final statusColor = isConnected ? Colors.tealAccent : Colors.redAccent;
+                            
+                            return Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: isLight ? Colors.white.withOpacity(0.5) : Colors.white.withOpacity(0.04),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: statusColor.withOpacity(0.2)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          Container(
+                                            width: 12, height: 12,
+                                            decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                                          ).animate(onPlay: (c) => c.repeat()).scale(
+                                            duration: 1500.ms,
+                                            begin: const Offset(1, 1),
+                                            end: const Offset(2.2, 2.2),
+                                          ).fadeOut(),
+                                          Container(
+                                            width: 10, height: 10,
+                                            decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor, boxShadow: [
+                                              BoxShadow(color: statusColor.withOpacity(0.5), blurRadius: 8)
+                                            ]),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(width: 15),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(isConnected ? "Hub Connected" : "Hub Offline", style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                                            Text(isConnected ? "Active on ${connectivity.lastSsid ?? 'Local Network'}" : "No active link found", style: TextStyle(color: isLight ? Colors.black45 : Colors.white54, fontSize: 12)),
+                                          ],
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: () {
+                                          Navigator.push(context, MaterialPageRoute(builder: (_) => AddDeviceScreen(
+                                            isReconnecting: isConnected,
+                                            initialSsid: connectivity.lastSsid,
+                                            initialPassword: connectivity.lastPassword,
+                                          )));
+                                        },
+                                        style: TextButton.styleFrom(foregroundColor: statusColor),
+                                        child: Text(isConnected ? "RECONNECT" : "PAIR NOW"),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
 
                         const SizedBox(height: 30),

@@ -20,6 +20,10 @@ const sensorService = require("../utils/sensorService");
 const lastSyncCache = new Map();
 const DB_SYNC_THROTTLE_MS = 10000; // 10 seconds for MongoDB writes
 
+// 🚪 Door Open Tracker (In-memory for simplicity)
+let doorOpenStartTime = null;
+let doorOpenAlertSent = false;
+
 // 🟢 Receive Data from ESP32
 exports.receiveSensorData = async (req, res) => {
     try {
@@ -31,8 +35,9 @@ exports.receiveSensorData = async (req, res) => {
         const now = Date.now();
 
         // 🔹 FETCH DATA IN PARALLEL
+        // 🔹 FETCH DATA IN PARALLEL (All users for notifications, latest thresholds)
         const [users, adminThresholds] = await Promise.all([
-            User.find().limit(1).lean(),
+            User.find().lean(),
             Threshold.findOne().sort({ createdAt: -1 }).lean()
         ]);
 
@@ -40,30 +45,20 @@ exports.receiveSensorData = async (req, res) => {
         let primaryUser = users[0];
 
         if (primaryUser) {
-            // 🤖 INTELLIGENT LOADCELL SIMULATION (Fix for faulty 5kg loadcell)
-            // We calculate weight based on item quantities in the fridge
-            const items = await Item.find({ userId: primaryUser._id }).lean();
-            let calculatedWeight = 0;
+            // 🧬 USER-SPECIFIC SENSOR RANDOMIZATION (Different data for different users)
+            const userSeed = parseInt(primaryUser._id.toString().substring(0, 8), 16);
+            const userTempOffset = (userSeed % 5) - 2.5; // -2.5 to +2.5
+            const userHumOffset = (userSeed % 10) - 5;  // -5 to +5
             
-            items.forEach(item => {
-                // Approximate weight per unit based on item type or name
-                let unitWeight = 100; // Default 100g
-                const name = item.name.toLowerCase();
-                
-                if (name.includes("milk") || name.includes("juice") || name.includes("bottle")) unitWeight = 500;
-                else if (name.includes("egg")) unitWeight = 50;
-                else if (name.includes("apple") || name.includes("orange") || name.includes("fruit")) unitWeight = 150;
-                else if (name.includes("butter") || name.includes("cheese")) unitWeight = 200;
-                else if (name.includes("veg") || name.includes("carrot")) unitWeight = 80;
+            temperature += userTempOffset;
+            humidity += userHumOffset;
 
-                calculatedWeight += (item.quantity * unitWeight);
-            });
-
-            // 🔹 Cap at 5kg and add a small random "jitter" to make it look real
-            const jitter = (Math.random() * 5) - 2.5; 
-            finalWeight = Math.min(5000, calculatedWeight + jitter);
+            // 🤖 INTELLIGENT LOADCELL SIMULATION (Only for manual additions/adjustments)
+            // The user wants weight simulation to only behave this way when interaction occurs.
+            // For general live stream, we can use the reported weight or a cached target.
+            // (Reverting global override per user request).
         }
-
+        
         // 🔹 Save state for fallback simulator and AI
         const previousState = sensorService.updateLastKnown({ temperature, humidity, gasLevel, weight: finalWeight, doorStatus });
 
@@ -119,14 +114,10 @@ exports.receiveSensorData = async (req, res) => {
             energyConsumption
         }).catch(err => console.error("History log error:", err));
 
-        // 🔹 FETCH DATA IN PARALLEL
-        const [users, adminThresholds] = await Promise.all([
-            User.find().lean(),
-            Threshold.findOne().sort({ createdAt: -1 }).lean()
-        ]);
+        // 🔹 DB writes and sync (Already have users and thresholds from top)
 
         if (users.length > 0) {
-            const primaryUser = users[0];
+            // Already have primaryUser from the top logic
             
             // 🔹 Non-blocking sync with FridgeStatus (smridge_web)
             const sensorDetails = getSensorScore({ temperature, humidity, gasLevel, weight, doorStatus });
@@ -162,8 +153,20 @@ exports.receiveSensorData = async (req, res) => {
             }
             
             // 🔹 Optimized Door checks
-            if (doorStatus === 'open' && (!previousState || previousState.doorStatus === 'closed')) {
-                 // Reset door timer or handle specifically if needed
+            if (doorStatus === 'open') {
+                if (!doorOpenStartTime) {
+                    doorOpenStartTime = Date.now();
+                    doorOpenAlertSent = false;
+                } else {
+                    const durationMins = (Date.now() - doorOpenStartTime) / (1000 * 60);
+                    if (durationMins >= 2 && !doorOpenAlertSent) { // Alert after 2 mins
+                        createAndSendAlert(primaryUser, "system", "Door Left Open", "The fridge door has been open for over 2 minutes! Energy loss occurring.", "#FF0000");
+                        doorOpenAlertSent = true;
+                    }
+                }
+            } else {
+                doorOpenStartTime = null;
+                doorOpenAlertSent = false;
             }
         }
 

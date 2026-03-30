@@ -630,6 +630,30 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                             onTap: () => _pickDateTime(isExpiry: true),
                           ),
                         ).animate().slideY(begin: 0.1).fade(delay: 200.ms),
+                        
+                        const SizedBox(height: 15),
+
+                        // 🔔 Reminder Date Selection
+                        Container(
+                          decoration: BoxDecoration(
+                            color: isLight ? Colors.grey.shade200 : Colors.blueAccent.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: isLight ? Colors.transparent : Colors.blueAccent.withOpacity(0.2)),
+                          ),
+                          child: ListTile(
+                            leading: Icon(Icons.notifications_active_outlined, color: isLight ? Colors.blue : Colors.blueAccent),
+                            title: Text("Custom Reminder", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                            subtitle: Text(
+                              selectedReminderDate == null ? "None (Tap to set)" : DateFormat('MMM dd, HH:mm').format(selectedReminderDate!),
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                            ),
+                            trailing: selectedReminderDate != null ? IconButton(
+                              icon: const Icon(Icons.clear, size: 20),
+                              onPressed: () => setState(() => selectedReminderDate = null),
+                            ) : null,
+                            onTap: () => _pickDateTime(isExpiry: false),
+                          ),
+                        ).animate().slideY(begin: 0.1).fade(delay: 220.ms),
 
                         const SizedBox(height: 15),
 
@@ -666,9 +690,11 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 weight: double.tryParse(weightController.text) ?? currentWeight,
                                 litres: isLiquid ? double.tryParse(litresController.text) : null,
                                 expiryDate: selectedDate!,
+                                reminderDate: selectedReminderDate, // 👈 Added
                                 imagePath: imagePath,
                                 imageUrl: imageUrl,
-                                dateAdded: DateTime.now(),
+                                notes: notesController.text, // 👈 Added (was missing notes too!)
+                                dateAdded: widget.existingItem?.dateAdded ?? DateTime.now(),
                               );
                               widget.onSave(item);
                             },

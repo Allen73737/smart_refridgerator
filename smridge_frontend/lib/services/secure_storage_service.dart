@@ -6,6 +6,8 @@ class SecureStorageService {
   static const _tokenKey = 'jwt_token';
   static const _userIdKey = 'user_id';
   static const _biometricKey = 'biometric_enabled';
+  static const _lastSsidKey = 'last_connected_ssid';
+  static const _lastPasswordKey = 'last_connected_password';
 
   static Future<void> saveToken(String token) async {
     await _storage.write(key: _tokenKey, value: token);
@@ -120,6 +122,14 @@ class SecureStorageService {
   static Future<String?> getString(String key) async {
     return await _storage.read(key: key);
   }
+
+  static Future<void> saveWifiCredentials(String ssid, String password) async {
+    await _storage.write(key: _lastSsidKey, value: ssid);
+    await _storage.write(key: _lastPasswordKey, value: password);
+  }
+  
+  static Future<String?> getLastSsid() async => await _storage.read(key: _lastSsidKey);
+  static Future<String?> getLastPassword() async => await _storage.read(key: _lastPasswordKey);
 
   static Future<void> clearAll() async {
     await _storage.deleteAll();

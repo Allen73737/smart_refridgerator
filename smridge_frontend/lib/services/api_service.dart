@@ -268,24 +268,21 @@ class ApiService {
     return false;
   }
 
-  // 🖼️ Search for premium product images via Unsplash
-  static Future<List<String>> searchImages(String query) async {
+  static Future<List<String>> suggestImages(String query, String token) async {
     try {
-      // Using a public-facing Unsplash search endpoint (simulated / proxy through backend recommended but direct for now)
-      // Note: For a real app, you'd use your own backend to proxy these requests with an API key.
-      // We'll use a standard search pattern.
-      final response = await http.get(Uri.parse('https://api.unsplash.com/search/photos?query=$query&client_id=YOUR_ACCESS_KEY'));
-      // Since I don't have the user's key, I'll provide a high-quality fallback generator
-      return [
-        "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?auto=format&fit=crop&q=80&w=400", // Generic food
-        "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=400", // Market
-        "https://images.unsplash.com/photo-1543353071-873f17a7a088?auto=format&fit=crop&q=80&w=400", // Fresh
-      ];
+      final url = Uri.parse('$baseDomain/api/ai/suggest-images?query=${Uri.encodeComponent(query)}');
+      print("📡 [API] Suggesting Images: $url");
+      final response = await http.get(url, headers: {'x-auth-token': token});
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return List<String>.from(data['images']);
+      }
     } catch (e) {
-      print("Image Search Error: $e");
-      return [];
+      print("❌ [API] Suggest Images Error: $e");
     }
+    return [];
   }
+
 
   static Future<bool> updateFood(InventoryItem item, String token) async {
     try {

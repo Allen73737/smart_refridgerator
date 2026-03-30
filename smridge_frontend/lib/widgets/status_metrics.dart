@@ -45,11 +45,11 @@ class _StatusMetricsState
     SocketService.on('sensor_data', (data) {
       if (!mounted) return;
       setState(() {
-        temperature = (data['temperature'] as num).toDouble();
-        humidity = (data['humidity'] as num).toDouble();
-        freshness = (data['calculatedFreshness'] as num).toDouble();
-        isDoorOpen = data['doorStatus'] == 'open';
-        isRealData = data['isReal'] ?? false;
+        temperature = double.tryParse(data['temperature']?.toString() ?? '8.0') ?? 8.0;
+        humidity    = double.tryParse(data['humidity']?.toString() ?? '60.0') ?? 60.0;
+        freshness   = double.tryParse(data['calculatedFreshness']?.toString() ?? '85.0') ?? 85.0;
+        isDoorOpen  = data['doorStatus'] == 'open';
+        isRealData  = data['isReal'] ?? false;
       });
     });
   }
@@ -137,7 +137,8 @@ class _StatusMetricsState
                                 color: Colors.tealAccent.withOpacity(0.1),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.hub_outlined, color: Colors.tealAccent, size: 16),
+                              child: Icon(Icons.hub_outlined, 
+                                color: isLight ? const Color(0xFF007A7A) : Colors.tealAccent, size: 16),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -147,7 +148,7 @@ class _StatusMetricsState
                                   Text(
                                     "SYSTEM MONITOR",
                                     style: GoogleFonts.orbitron(
-                                      color: Colors.tealAccent,
+                                      color: isLight ? const Color(0xFF007A7A) : Colors.tealAccent,
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 2,
@@ -159,31 +160,35 @@ class _StatusMetricsState
                           ],
                         ),
                         const SizedBox(height: 8),
-                        const Divider(color: Colors.white10, height: 1),
+                        Divider(color: isLight ? Colors.black12 : Colors.white10, height: 1),
                         const SizedBox(height: 6),
                         buildMetric(
                             "Internal Temp",
                             "${temperature.toStringAsFixed(1)}°C",
-                            isTempDanger() ? Colors.redAccent : Colors.tealAccent,
+                            isTempDanger() 
+                              ? Colors.redAccent 
+                              : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.thermostat_rounded,
                             isLight: isLight),
                         buildMetric(
                             "Air Humidity",
                             "${humidity.toStringAsFixed(0)}%",
-                            isHumidityDanger() ? Colors.redAccent : Colors.tealAccent,
+                            isHumidityDanger() 
+                              ? Colors.redAccent 
+                              : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.water_drop_rounded,
                             isLight: isLight),
                         buildMetric(
                             "Freshness",
                             "",
-                            Colors.tealAccent,
+                            isLight ? const Color(0xFF007A7A) : Colors.tealAccent,
                             icon: Icons.auto_awesome_outlined,
                             customValueWidget: _buildFreshnessIndicators(freshness),
                             isLight: isLight),
                         buildMetric(
                             "Smart Door",
                             isDoorOpen ? "OPEN" : "CLOSED",
-                            isDoorOpen ? Colors.orangeAccent : Colors.tealAccent,
+                            isDoorOpen ? Colors.orangeAccent : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.door_front_door_outlined,
                             isLight: isLight),
                       ],

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/duolingo_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="SMRIDGE"
+        android:textColor="#00F2FF"
+        android:textSize="20sp"
+        android:fontFamily="sans-serif-black"
+        android:gravity="center"
+        android:letterSpacing="0.1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+        <TextView android:id="@+id/temp_value" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="24sp" android:fontFamily="sans-serif-black" android:gravity="center" />
+        <TextView android:id="@+id/hum_value" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="24sp" android:fontFamily="sans-serif-black" android:gravity="center" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content" android:text="TEMP" android:textColor="#00F2FF" android:textSize="12sp" android:fontFamily="sans-serif-black" android:gravity="center" />
+        <TextView android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content" android:text="HUM" android:textColor="#00F2FF" android:textSize="12sp" android:fontFamily="sans-serif-black" android:gravity="center" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1E2A33"
+        android:layout_marginTop="10dp"
+        android:padding="4dp"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView android:id="@+id/freshness_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FRESH!" android:textColor="#00F2FF" android:textSize="14sp" android:fontFamily="sans-serif-black" />
+        <TextView android:id="@+id/status_text" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF4B4B" android:textSize="14sp" android:fontFamily="sans-serif-black" />
+        <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="12sp" android:fontFamily="sans-serif-black" />
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:layout_marginTop="8dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="FRIDGE INVENTORY" android:fontFamily="sans-serif-black" android:textColor="#00F2FF" android:textSize="10sp" />
+        <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:fontFamily="sans-serif-medium" android:textSize="14sp" android:maxLines="3" android:ellipsize="end" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ALERTS" android:fontFamily="sans-serif-black" android:textColor="#00F2FF" android:textSize="10sp" android:layout_marginTop="4dp" />
+        <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FF4B4B" android:fontFamily="sans-serif-medium" android:textSize="14sp" android:maxLines="2" android:ellipsize="end" />
+    </LinearLayout>
+</LinearLayout>

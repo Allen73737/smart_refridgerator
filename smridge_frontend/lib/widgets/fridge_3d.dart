@@ -79,9 +79,10 @@ class Fridge3DState extends State<Fridge3D>
     SocketService.on('sensor_data', (data) {
       if (!mounted) return;
 
-      double temp = (data['temperature'] as num).toDouble();
-      double hum = (data['humidity'] as num).toDouble();
-      double fresh = (data['calculatedFreshness'] as num).toDouble();
+      // Safe parsing: backend may send values as String or num
+      double temp   = double.tryParse(data['temperature']?.toString() ?? '4.0') ?? 4.0;
+      double hum    = double.tryParse(data['humidity']?.toString() ?? '60.0') ?? 60.0;
+      double fresh  = double.tryParse(data['calculatedFreshness']?.toString() ?? '85.0') ?? 85.0;
       bool door = data['doorStatus'] == 'open';
 
       bool tempDanger = temp > AppSettings.temperatureThreshold;
