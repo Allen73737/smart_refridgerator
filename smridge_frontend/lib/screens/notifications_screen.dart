@@ -234,17 +234,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           )
           : notifications.isEmpty ? 
-          Center(child: Text("No new notifications", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16)))
+          RefreshIndicator(
+            onRefresh: _fetchNotifications,
+            child: ListView(
+              children: [
+                SizedBox(height: MediaQuery.of(context).size.height * 0.4),
+                Center(child: Text("No new notifications", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16))),
+              ],
+            ),
+          )
           : SafeArea(
-            child: ListView.builder(
-              padding: const EdgeInsets.only(top: 80, bottom: 20, left: 16, right: 16),
-              itemCount: notifications.length,
-              itemBuilder: (context, index) {
-                final notif = notifications[index];
-                final type = notif['type'] ?? 'info';
-                final icon = _getIconForType(type);
-                final color = _getColorForType(type);
-                final isRead = notif['isRead'] == true;
+            child: RefreshIndicator(
+              onRefresh: _fetchNotifications,
+              color: Colors.tealAccent,
+              backgroundColor: const Color(0xFF1E2A33),
+              child: ListView.builder(
+                padding: const EdgeInsets.only(top: 80, bottom: 20, left: 16, right: 16),
+                itemCount: notifications.length,
+                itemBuilder: (context, index) {
+                  final notif = notifications[index];
+                  if (notif == null) return const SizedBox.shrink();
+
+                  final type = (notif['type'] ?? 'info').toString().toLowerCase();
+                  final icon = _getIconForType(type);
+                  final color = _getColorForType(type);
+                  final isRead = notif['isRead'] == true;
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 15),
@@ -368,18 +382,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                     ),
                   ),
-                ).animate(
-                  target: _animatingOutIds.contains(notif['_id']) ? 1 : 0,
-                )
+                ).animate(target: _animatingOutIds.contains(notif['_id']) ? 1 : 0)
                  .fadeIn(delay: (50 * index).ms, duration: 500.ms)
                  .scale(delay: (50 * index).ms, duration: 600.ms, curve: Curves.elasticOut, begin: const Offset(0.8, 0.8))
                  .then(delay: 0.ms)
-                 .slideX(end: -1.5, duration: 400.ms, curve: Curves.easeInCubic)
-                 .fadeOut(duration: 300.ms);
+                 .slideX(target: _animatingOutIds.contains(notif['_id']) ? -1.5 : 0.0, duration: 400.ms, curve: Curves.easeInCubic)
+                 .fadeOut(target: _animatingOutIds.contains(notif['_id']) ? 1.0 : 0.0, duration: 300.ms);
               },
             ),
           ),
-        ],
+        ),
       ),
     );
   }

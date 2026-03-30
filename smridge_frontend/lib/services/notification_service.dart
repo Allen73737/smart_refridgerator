@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'audio_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/fridge_customization_provider.dart';
@@ -58,26 +59,16 @@ class NotificationService {
     }
 
 
-    // 🕒 Initialize Timezones for Background Scheduling
+    // 🕒 Initialize Timezones for accurate Device-Time Scheduling
     tz.initializeTimeZones();
     
     try {
-      final now = DateTime.now();
-      final offset = now.timeZoneOffset.inMinutes;
-      String zoneName = "Asia/Kolkata"; // Default
-      if (offset == 330) zoneName = "Asia/Kolkata";
-      else if (offset == 0) zoneName = "UTC";
-      else if (offset == -300) zoneName = "America/New_York";
-      else if (offset == -480) zoneName = "America/Los_Angeles";
-      else {
-        final hours = offset ~/ 60;
-        zoneName = "Etc/GMT${hours >= 0 ? '-' : '+'}${hours.abs()}";
-      }
-      
-      tz.setLocalLocation(tz.getLocation(zoneName));
-      print("🕒 Timezone initialized to: $zoneName");
+      final timeZoneName = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timeZoneName.toString())); // 🔹 Ensures String conversion
+      debugPrint("🕒 Timezone initialized to: $timeZoneName");
     } catch (e) {
-      tz.setLocalLocation(tz.getLocation("UTC"));
+      debugPrint("🕒 Timezone fallback to Asia/Kolkata: $e");
+      tz.setLocalLocation(tz.getLocation("Asia/Kolkata"));
     }
   }
 

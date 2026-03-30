@@ -203,14 +203,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
-      final stableId = item.id.hashCode;
+      final stableId = item.id.hashCode % 100000000;
 
       // 🚨 Schedule Expiry Alert (3 hours before)
       await service.scheduleExpiryNotification(stableId, item.name, item.expiryDate);
 
-      // ⏰ Schedule Custom Reminder (if set)
+      // ⏰ Schedule & Trigger Immediate Shade Timer (if set)
       if (item.reminderDate != null) {
-        await service.scheduleLocalReminder(stableId, item.name, item.reminderDate!);
+        final now = DateTime.now();
+        // 🔹 Use device local time for immediate shade display
+        await service.showReminderTimerNotification(stableId, item.name, item.reminderDate!.toLocal());
+        await service.scheduleLocalReminder(stableId, item.name, item.reminderDate!.toLocal());
       }
     }
   }
@@ -365,10 +368,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double _computeFreshness() {
     if (inventory.isEmpty) return 1.0;
-    final now = DateTime.now();
+    final now = DateTime.now(); // 🔹 Uses Device Clock
     double totalFreshness = 0;
     for (var item in inventory) {
-       final days = item.expiryDate.difference(now).inDays;
+       final localExpiry = item.expiryDate.toLocal();
+       final days = localExpiry.difference(now).inDays;
        if (days > 14) totalFreshness += 1.0;
        else if (days > 0) totalFreshness += (days / 14.0);
        else totalFreshness += 0.0;
@@ -407,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _checkExpiryTimers() {
     if (inventory.isEmpty) return;
     for (var item in inventory) {
-      NotificationService().showCountdownNotification(item.name, item.expiryDate);
+      NotificationService().showCountdownNotification(item.name, item.expiryDate.toLocal());
     }
   }
 
