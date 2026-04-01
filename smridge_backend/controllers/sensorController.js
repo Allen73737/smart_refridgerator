@@ -6,6 +6,7 @@ const socketManager = require("../utils/socketManager");
 const logActivity = require("../utils/activityLogger");
 const Threshold = require("../models/Threshold");
 const FridgeStatus = require("../models/FridgeStatus");
+const Device = require("../models/Device"); // 🔑 Added for identity lookup
 
 const { getSensorScore } = require("../utils/freshnessUtils");
 const sensorService = require("../utils/sensorService");
@@ -44,17 +45,23 @@ exports.receiveSensorData = async (req, res) => {
     humidity = Number(humidity);
     gasLevel = Number(gasLevel);
     weight = Number(weight);
+    
+    // 🔍 IDENTITY LOOKUP: Find the owner of this device
+    const { deviceId } = req.body;
+    if (!deviceId) {
+      return res.status(400).json({ message: "Device identity (deviceId) is required" });
+    }
 
-    const syncKey = "primary_fridge";
+    const device = await Device.findOne({ deviceId }).populate('userId');
+    if (!device || !device.userId) {
+      return res.status(404).json({ message: "Device not registered or linked to a user" });
+    }
+
+    const primaryUser = device.userId; // 🎯 Securely found the actual owner
+    const syncKey = `fridge_${primaryUser._id}`;
     const now = Date.now();
 
-    const [users, adminThresholds] = await Promise.all([
-      User.find().lean(),
-      Threshold.findOne().sort({ createdAt: -1 }).lean()
-    ]);
-
-    let finalWeight = weight;
-    let primaryUser = users[0];
+    const adminThresholds = await Threshold.findOne().sort({ createdAt: -1 }).lean();
 
     if (primaryUser) {
       const userSeed = parseInt(primaryUser._id.toString().substring(0, 8), 16);
@@ -100,8 +107,8 @@ exports.receiveSensorData = async (req, res) => {
     if (calculatedFreshness < 60) status = "Caution";
     if (calculatedFreshness < 30) status = "Spoiled";
 
-    // Emit real-time socket event
-    socketManager.emitEvent("sensor_data", {
+    // Emit real-time socket event (TARGETED to owner only)
+    socketManager.emitToUser(primaryUser._id, "sensor_data", {
       temperature,
       humidity,
       gasLevel,
@@ -128,14 +135,16 @@ exports.receiveSensorData = async (req, res) => {
     // Energy simulation
     const energyConsumption = (temperature > 8 ? 0.5 : 0.2) + (Math.random() * 0.1);
 
-    // Save sensor history
+    // Save sensor history (SECURE with foreign keys)
     SensorData.create({
       temperature,
       humidity,
       gasLevel,
       weight: finalWeight,
       doorStatus,
-      energyConsumption
+      energyConsumption,
+      userId: primaryUser._id,
+      deviceId: deviceId
     }).catch(err => console.error("History log error:", err));
 
     if (users.length > 0 && primaryUser) {

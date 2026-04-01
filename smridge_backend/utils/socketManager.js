@@ -3,10 +3,9 @@ const { Server } = require("socket.io");
 let io;
 const { getSensorScore } = require("./freshnessUtils");
 
-// Store active intervals per socket
+// Store active intervals and per-user data state
 const userIntervals = new Map();
-let lastRealData = null;
-let lastRealTimestamp = 0;
+const userRealData = new Map(); // 🔑 userId -> { data, timestamp }
 
 module.exports = {
   init: (httpServer) => {
@@ -25,6 +24,7 @@ module.exports = {
       // 🔑 Let client join their personal room for targeted emissions
       socket.on("register", (userId) => {
         if (userId) {
+          socket.userId = userId; // 📌 Attach userId to socket for easy lookup
           socket.join(`user_${userId}`);
           console.log(`🔑 Socket ${socket.id} registered to room user_${userId}`);
         }
@@ -36,10 +36,12 @@ module.exports = {
 
         const interval = setInterval(() => {
           const now = Date.now();
-          const isRealRecent = (now - lastRealTimestamp) < 10000;
+          const userId = socket.userId;
+          const realSession = userId ? userRealData.get(userId) : null;
+          const isRealRecent = realSession && (now - realSession.timestamp) < 10000;
 
-          if (isRealRecent && lastRealData) {
-            socket.emit("sensor_data", { ...lastRealData, isReal: true });
+          if (isRealRecent && realSession.data) {
+            socket.emit("sensor_data", { ...realSession.data, isReal: true });
           } else {
             // Generate unique simulated data per user
             const seed = socket.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -89,20 +91,19 @@ module.exports = {
     }
     return io;
   },
-  // Helper to emit events easily (broadcasts to ALL connected clients)
-  emitEvent: (event, data) => {
-    if (io) {
-      if (event === "sensor_data" && data.isReal) {
-        lastRealData = data;
-        lastRealTimestamp = Date.now();
-      }
-      io.emit(event, data);
-    }
-  },
-  // Helper to emit to a specific user's room
+  // Helper to emit to a specific user's room and update their real-time state
   emitToUser: (userId, event, data) => {
     if (io) {
+      if (event === "sensor_data" && data.isReal) {
+        userRealData.set(userId, { data, timestamp: Date.now() });
+      }
       io.to(`user_${userId}`).emit(event, data);
+    }
+  },
+  // Legacy broadcast (Use sparingly in multi-user environment)
+  emitEvent: (event, data) => {
+    if (io) {
+      io.emit(event, data);
     }
   }
 };

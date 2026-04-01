@@ -1,4 +1,5 @@
 const SensorData = require("../models/SensorData");
+const User = require("../models/User"); // 🔑 Added to satisfy validation
 
 // 🔹 State Tracking
 let lastState = {
@@ -59,13 +60,19 @@ setInterval(async () => {
     // Only persist if offline (Drift) or if 30s passed for real data 
     // (Real data is already throttled in sensorController, but we log here as safety)
     if (!sensors.isReal) {
-        console.log(`[Simulator] ESP32 Offline. Persisting Analytics drift: Temp ${sensors.temperature.toFixed(1)}`);
         try {
-            await SensorData.create({
-                ...sensors,
-                energyConsumption: 0.1,
-                isSimulated: true
-            });
+            // Find a user to attribute simulation data to (safety/multi-user compliance)
+            const firstUser = await User.findOne().lean();
+            if (firstUser) {
+                console.log(`[Simulator] ESP32 Offline. Persisting Analytics drift for User: ${firstUser._id}`);
+                await SensorData.create({
+                    ...sensors,
+                    energyConsumption: 0.1,
+                    isSimulated: true,
+                    userId: firstUser._id,
+                    deviceId: "SMRIDGE_SIMULATOR_001"
+                });
+            }
         } catch (err) {
             console.error("Simulator Persistence Error:", err);
         }
