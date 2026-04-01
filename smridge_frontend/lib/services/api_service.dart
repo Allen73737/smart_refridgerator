@@ -26,6 +26,12 @@ class ApiService {
   static String get baseUrl => '${currentBaseUrl.value}/api/items';
   static String get deviceUrl => '${currentBaseUrl.value}/api/device';
 
+  /// 🔹 Pre-warm the Render backend (Cold Start mitigation)
+  static void wakeUpBackend() {
+    print("🔥 Sending early wake-up ping to: https://$renderUrl/health");
+    http.get(Uri.parse('https://$renderUrl/health')).catchError((_) => http.Response('error', 500));
+  }
+
   /// 🔹 Initialize and determine the best backend to use
   static Future<void> initializeBackend() async {
     print("🌐 Determining best backend...");
@@ -39,11 +45,10 @@ class ApiService {
       return;
     }
     
-    // 1. Try Physical Device IP (Laptop IP)
     try {
       final localTestUrl = 'http://$localIp:$localPort/health';
       print("🔍 Checking Physical Local: $localTestUrl");
-      final response = await http.get(Uri.parse(localTestUrl)).timeout(const Duration(seconds: 6));
+      final response = await http.get(Uri.parse(localTestUrl)).timeout(const Duration(seconds: 2));
       if (response.statusCode == 200) {
         print("✅ Local Backend Detected (Physical)! Using: http://$localIp:$localPort");
         currentBaseUrl.value = 'http://$localIp:$localPort';
@@ -51,17 +56,27 @@ class ApiService {
       }
     } catch (e) { print("ℹ️ Local (Physical) unreachable: $e"); }
 
-    // 2. Try Emulator IP (10.0.2.2)
     try {
       final emuTestUrl = 'http://$emulatorIp:$localPort/health';
       print("🔍 Checking Emulator Local: $emuTestUrl");
-      final response = await http.get(Uri.parse(emuTestUrl)).timeout(const Duration(seconds: 6));
+      final response = await http.get(Uri.parse(emuTestUrl)).timeout(const Duration(seconds: 2));
       if (response.statusCode == 200) {
         print("✅ Local Backend Detected (Emulator)! Using: http://$emulatorIp:$localPort");
         currentBaseUrl.value = 'http://$emulatorIp:$localPort';
         return;
       }
     } catch (e) { print("ℹ️ Local (Emulator) unreachable: $e"); }
+
+    try {
+      final hostTestUrl = 'http://127.0.0.1:$localPort/health';
+      print("🔍 Checking Host Localhost: $hostTestUrl");
+      final response = await http.get(Uri.parse(hostTestUrl)).timeout(const Duration(seconds: 2));
+      if (response.statusCode == 200) {
+        print("✅ Local Backend Detected (Localhost)! Using: http://127.0.0.1:$localPort");
+        currentBaseUrl.value = 'http://127.0.0.1:$localPort';
+        return;
+      }
+    } catch (e) { print("ℹ️ Localhost unreachable: $e"); }
 
     // 3. Fallback to Render
     print("🌍 Falling back to Cloud Backend: https://$renderUrl");
@@ -163,12 +178,19 @@ class ApiService {
     return null;
   }
 
-  static Future<bool> updateProfile(String name, String email, String token) async {
+  static Future<bool> updateProfile(String name, String email, String token, {String? location, String? timezone, String? appPin}) async {
     try {
+      final body = <String, dynamic>{};
+      if (name.isNotEmpty) body['name'] = name;
+      if (email.isNotEmpty) body['email'] = email;
+      if (location != null) body['location'] = location;
+      if (timezone != null) body['timezone'] = timezone;
+      if (appPin != null) body['appPin'] = appPin;
+
       final response = await http.put(
         Uri.parse('$userUrl/profile'),
         headers: {'Content-Type': 'application/json', 'x-auth-token': token},
-        body: jsonEncode({'name': name, 'email': email}),
+        body: jsonEncode(body),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -543,6 +565,9 @@ class ApiService {
 
   static Future<bool> connectToEsp(String ssid, String password) async {
     try {
+      // 🟢 Verify device health first
+      if (!await checkEspHealth()) return false;
+      
       // 🟢 Local endpoint on ESP32 Access Point
       final url = Uri.parse('http://192.168.4.1/connect');
       print("📡 [ESP32] Sending WiFi credentials to: $url");
@@ -562,6 +587,18 @@ class ApiService {
       return response.statusCode == 200;
     } catch (e) {
       print("❌ ESP32 Connect Error: $e");
+      return false;
+    }
+  }
+
+  static Future<bool> checkEspHealth() async {
+    try {
+      final url = Uri.parse('http://192.168.4.1/health');
+      print("📡 [ESP32] Checking health at: $url");
+      final response = await http.get(url).timeout(const Duration(seconds: 3));
+      return response.statusCode == 200;
+    } catch (e) {
+      print("❌ [ESP32] Health Check failed: $e");
       return false;
     }
   }

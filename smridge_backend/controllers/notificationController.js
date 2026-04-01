@@ -15,14 +15,14 @@ exports.getNotifications = async (req, res) => {
     }
 };
 
-// 🟢 Get notification history (archived)
+// 🟢 Get notification history (Unified History: Show ALL)
 exports.getHistory = async (req, res) => {
     try {
-        console.log(`📦 Fetching archived history for user: ${req.user.id}`);
+        console.log(`📦 Fetching unified history for user: ${req.user.id}`);
         const notifications = await NotificationModel.find({
-            userId: req.user.id,
-            isArchived: true
-        }).sort({ createdAt: -1 });
+            userId: req.user.id
+        }).sort({ createdAt: -1 }).limit(200); // Increased limit for audit trail
+        
         console.log(`✅ Found ${notifications.length} history items`);
         res.json(notifications);
     } catch (error) {

@@ -13,19 +13,34 @@ const userSchema = new mongoose.Schema({
   role:         { type: String, enum: ['user', 'admin'], default: 'user' },
   isBlocked:    { type: Boolean, default: false },
   lastActive:   { type: Date, default: Date.now },
+  location:     { type: String, default: "" },
+  timezone:     { type: String, default: "UTC" },
+  appPin:       { type: String, default: null }, // Hashed PIN
   deviceId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Device', default: null },
 }, { timestamps: true });
 
-// Auto-hash password before saving (SINGLE source of truth — no manual hashing in controllers)
+// Auto-hash password/PIN before saving (SINGLE source of truth)
 userSchema.pre('save', async function () {
-  if (!this.isModified('password')) return;
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+  if (this.isModified('password') && this.password) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  }
+  if (this.isModified('appPin') && this.appPin) {
+    const salt = await bcrypt.genSalt(10);
+    this.appPin = await bcrypt.hash(this.appPin, salt);
+  }
 });
 
 // Compare plain-text password to hashed DB password
 userSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Compare plain-text PIN to hashed DB PIN
+userSchema.methods.matchPin = async function (enteredPin) {
+  if (!this.appPin) return false;
+  return await bcrypt.compare(enteredPin, this.appPin);
 };
 
 module.exports = mongoose.model("User", userSchema);

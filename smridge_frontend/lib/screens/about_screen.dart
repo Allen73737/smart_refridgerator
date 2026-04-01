@@ -236,7 +236,7 @@ class AboutScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            _buildSocialIcon(Icons.language, () => _launchURL("https://smridge.io"), accentColor),
+                            _buildSocialIcon(Icons.language, () => _launchURL("https://smridge.vercel.app/"), accentColor),
                             const SizedBox(width: 20),
                             _buildSocialIcon(Icons.email_outlined, _sendEmail, accentColor),
                             const SizedBox(width: 20),

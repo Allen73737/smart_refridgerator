@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'dart:io';
+import 'dart:async';
 import 'dart:ui'; // Added for ImageFilter
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -47,6 +48,9 @@ class Fridge3DState extends State<Fridge3D>
   bool _isDoorOpenSensor = false;
   bool _isThresholdDanger = false;
   bool _isESP32Connected = false;
+  bool _isUserInteracting = false; // 🛠️ Manual Override flag
+  Timer? _interactionTimer;
+  bool? _lastSensorState; // 🛡️ Hardware transition tracker
   int _prevInventoryCount = 0;
   bool _isTwinkling = false;
   double _panX = 0;
@@ -68,8 +72,8 @@ class Fridge3DState extends State<Fridge3D>
     doorController = AnimationController(
       vsync: this,
       lowerBound: 0,
-      upperBound: pi / 1.15,
-      duration: const Duration(milliseconds: 500),
+      upperBound: 2.6, // 🧊 Increased to 150 degrees for a very wide swing
+      duration: const Duration(milliseconds: 600),
     );
 
     _initSocketListeners();
@@ -94,6 +98,17 @@ class Fridge3DState extends State<Fridge3D>
         _isThresholdDanger = tempDanger || humDanger || freshDanger;
         _isESP32Connected = data['isReal'] ?? false;
       });
+
+      // 🚪 Sync 3D door with sensor state ONLY on hardware transitions
+      // This allows manual opening/closing to stay put until the real door is touched
+      if (_lastSensorState != null && _lastSensorState != _isDoorOpenSensor) {
+        if (_isDoorOpenSensor && !_isDoorOpen) {
+          _openDoor();
+        } else if (!_isDoorOpenSensor && _isDoorOpen) {
+          _closeDoor();
+        }
+      }
+      _lastSensorState = _isDoorOpenSensor;
     });
   }
 
@@ -115,8 +130,8 @@ class Fridge3DState extends State<Fridge3D>
 
       if (widget.selectedTab == 2) {
         _openDoor(); // Auto-open when 'Inventory' pressed
-      } else if (oldWidget.selectedTab == 2) {
-        _closeDoor(); // Auto-close when leaving 'Inventory'
+      } else if (oldWidget.selectedTab == 2 && !_isDoorOpenSensor) {
+        _closeDoor(); // Auto-close when leaving 'Inventory', ONLY if sensor doesn't say it's open
       }
     }
 
@@ -145,9 +160,8 @@ class Fridge3DState extends State<Fridge3D>
 
   // Closes the fridge door
   void _closeDoor() {
-    if (_isDoorOpen || doorController.value > 0.0) {
+    if (_isDoorOpen || doorController.value > 0.1) {
       final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
-      setState(() => _isDoorOpen = true); // logic fix from false to prevent multiple plays when snapping
       setState(() => _isDoorOpen = false);
       AudioService.playDoorOpen(index: customizer.fridgeDoorSoundIndex, customPath: customizer.customDoorSoundPath);
       AudioService.stopFridgeHum();
@@ -182,7 +196,7 @@ class Fridge3DState extends State<Fridge3D>
             double lowerDoorHeight = max(350.0, fridgeHeight - 290.0);
 
             Matrix4 transform = Matrix4.identity()
-              ..setEntry(3, 2, 0.001);
+              ..setEntry(3, 2, 0.002); // 📐 Increased perspective depth
 
             // ✅ STATUS = cinematic downward zoom + tilt (Focus on Upper Fridge)
             if (zoomStatus) {
@@ -361,7 +375,7 @@ class Fridge3DState extends State<Fridge3D>
             alignment: Alignment.centerLeft,
             transform: Matrix4.identity()
               ..setEntry(3, 2, 0.0015)
-              ..rotateY(doorController.value),
+              ..rotateY(doorController.value), // 📐 Swings OUTWARD
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
@@ -411,7 +425,7 @@ class Fridge3DState extends State<Fridge3D>
             alignment: Alignment.centerLeft,
             transform: Matrix4.identity()
               ..setEntry(3, 2, 0.0015)
-              ..rotateY(doorController.value),
+              ..rotateY(doorController.value), // 📐 Unified OUTWARD swing
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
@@ -421,20 +435,29 @@ class Fridge3DState extends State<Fridge3D>
                   _openDoor();
                 }
               },
+              onHorizontalDragStart: (_) {
+                setState(() => _isUserInteracting = true);
+                _interactionTimer?.cancel();
+              },
               onHorizontalDragUpdate: (details) {
-                // Adjust sensitivity to make closing feel more responsive
-                double delta = details.delta.dx / 150; 
-                doorController.value = (doorController.value + delta).clamp(0.0, pi / 1.15);
+                // 🛠️ Unify Drag (Positive Delta = Open Outwards)
+                double delta = details.delta.dx / 80; 
+                doorController.value = (doorController.value + delta).clamp(0.0, 2.6);
               },
               onHorizontalDragEnd: (details) {
-                // Make snapping purely dependent on velocity or a very early threshold
+                // 🛠️ snap threshold (15% of 2.6)
                 if (details.primaryVelocity != null && details.primaryVelocity! < -300) {
                    _closeDoor();
-                } else if (doorController.value > (pi / 1.15) * 0.3) {
+                } else if (doorController.value > 2.6 * 0.15) {
                    _openDoor();
                 } else {
                    _closeDoor();
                 }
+                
+                // 🛠️ Keep override active for a moment to prevent "snap-back" from sensor
+                _interactionTimer = Timer(const Duration(seconds: 3), () {
+                  if (mounted) setState(() => _isUserInteracting = false);
+                });
               },
               child: Container(
                 width: 340,

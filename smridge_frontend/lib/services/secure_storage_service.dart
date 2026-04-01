@@ -1,13 +1,20 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 class SecureStorageService {
-  static final _storage = const FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+  );
   static const _tokenKey = 'jwt_token';
   static const _userIdKey = 'user_id';
   static const _biometricKey = 'biometric_enabled';
   static const _lastSsidKey = 'last_connected_ssid';
   static const _lastPasswordKey = 'last_connected_password';
+  static const _failedPinAttemptsKey = 'failed_pin_attempts';
+  static const _pinLockoutUntilKey = 'pin_lockout_until';
 
   static Future<void> saveToken(String token) async {
     await _storage.write(key: _tokenKey, value: token);
@@ -95,6 +102,13 @@ class SecureStorageService {
   static Future<void> savePin(String pin) async {
     await _storage.write(key: _pinKey, value: pin);
     await _storage.write(key: _pinEnabledKey, value: 'true');
+
+    // ☁️ Cloud Sync (Async)
+    getToken().then((token) {
+      if (token != null) {
+        ApiService.updateProfile("", "", token, appPin: pin);
+      }
+    });
   }
 
   static Future<String?> getPin() async {
@@ -113,6 +127,30 @@ class SecureStorageService {
   static Future<void> clearPin() async {
     await _storage.delete(key: _pinKey);
     await _storage.write(key: _pinEnabledKey, value: 'false');
+    await _storage.delete(key: _failedPinAttemptsKey);
+    await _storage.delete(key: _pinLockoutUntilKey);
+  }
+
+  static Future<int> getFailedAttempts() async {
+    final val = await _storage.read(key: _failedPinAttemptsKey);
+    return int.tryParse(val ?? '0') ?? 0;
+  }
+
+  static Future<void> setFailedAttempts(int attempts) async {
+    await _storage.write(key: _failedPinAttemptsKey, value: attempts.toString());
+  }
+
+  static Future<void> setLockoutUntil(DateTime? until) async {
+    if (until == null) {
+      await _storage.delete(key: _pinLockoutUntilKey);
+    } else {
+      await _storage.write(key: _pinLockoutUntilKey, value: until.toIso8601String());
+    }
+  }
+
+  static Future<DateTime?> getLockoutUntil() async {
+    final val = await _storage.read(key: _pinLockoutUntilKey);
+    return val != null ? DateTime.parse(val) : null;
   }
 
   static Future<void> saveString(String key, String value) async {

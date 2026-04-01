@@ -8,6 +8,7 @@ import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
 import '../utils/snackbar_utils.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
 
@@ -22,6 +23,8 @@ class AccountProfileScreen extends StatefulWidget {
 class _AccountProfileScreenState extends State<AccountProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _timezoneController = TextEditingController();
   bool isLoading = true;
   File? _selectedImage;
   String? _profileImageUrl;
@@ -42,12 +45,19 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
         setState(() {
           _nameController.text = profile['name'] ?? '';
           _emailController.text = profile['email'] ?? '';
+          _locationController.text = profile['location'] ?? '';
+          _timezoneController.text = profile['timezone'] ?? '';
           if (profile['profileImage'] != null) {
             String imageStr = profile['profileImage'];
             _profileImageUrl = imageStr.startsWith('http') ? imageStr : 'http://${ApiService.host}/uploads/$imageStr';
           }
           isLoading = false;
         });
+        
+        // 🕒 Auto-detect timezone if missing
+        if (_timezoneController.text.isEmpty) {
+          _detectTimezone();
+        }
         return;
       }
     }
@@ -55,8 +65,25 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
       setState(() {
           _nameController.text = 'Guest User';
           _emailController.text = 'Please login';
+          _locationController.text = 'Unknown';
+          _timezoneController.text = 'UTC';
           isLoading = false;
       });
+    }
+  }
+
+  Future<void> _detectTimezone() async {
+    try {
+      final dynamic info = await FlutterTimezone.getLocalTimezone();
+      // Handle both String (standard) and potential legacy TimezoneInfo objects
+      final String name = (info is String) ? info : (info != null ? info.toString() : "UTC");
+      if (mounted) {
+        setState(() {
+          _timezoneController.text = name;
+        });
+      }
+    } catch (e) {
+      print("Error detecting timezone: $e");
     }
   }
 
@@ -64,7 +91,13 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
     final token = await SecureStorageService.getToken();
     
     if (token != null) {
-      final success = await ApiService.updateProfile(_nameController.text, _emailController.text, token);
+      final success = await ApiService.updateProfile(
+        _nameController.text, 
+        _emailController.text, 
+        token,
+        location: _locationController.text,
+        timezone: _timezoneController.text,
+      );
       if (success) {
         if (_selectedImage != null) {
            final imageSuccess = await ApiService.uploadProfileImage(_selectedImage!, token);
@@ -98,6 +131,8 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _locationController.dispose();
+    _timezoneController.dispose();
     super.dispose();
   }
 
@@ -228,7 +263,51 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
                                 filled: true,
                                 fillColor: isLight ? Colors.grey.shade200 : Colors.black.withOpacity(0.3),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                                prefixIcon: Icon(Icons.email_outlined, color: isLight ? Colors.black54 : Colors.white54),
+                              prefixIcon: Icon(Icons.email_outlined, color: isLight ? Colors.black54 : Colors.white54),
+                              ),
+                            ),
+                            
+                            const SizedBox(height: 25),
+                            
+                            Text("Your Location", style: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _locationController,
+                              style: TextStyle(color: textColor),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: isLight ? Colors.grey.shade200 : Colors.black.withOpacity(0.3),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                prefixIcon: Icon(Icons.location_on_outlined, color: isLight ? Colors.black54 : Colors.white54),
+                                hintText: "e.g. New York, USA",
+                                hintStyle: TextStyle(color: isLight ? Colors.black26 : Colors.white24),
+                              ),
+                            ),
+
+                            const SizedBox(height: 25),
+                            
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Timezone", style: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                TextButton.icon(
+                                  onPressed: _detectTimezone,
+                                  icon: const Icon(Icons.my_location, size: 14),
+                                  label: const Text("AUTO-DETECT", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                  style: TextButton.styleFrom(foregroundColor: Colors.tealAccent),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _timezoneController,
+                              readOnly: true, // Auto-detected or fallback
+                              style: TextStyle(color: textColor),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: isLight ? Colors.grey.shade200 : Colors.black.withOpacity(0.3),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                prefixIcon: Icon(Icons.access_time, color: isLight ? Colors.black54 : Colors.white54),
                               ),
                             ),
 

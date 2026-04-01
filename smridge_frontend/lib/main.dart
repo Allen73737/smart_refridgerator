@@ -20,7 +20,11 @@ import 'providers/connectivity_provider.dart';
 import 'config/app_themes.dart';
 import 'config/app_settings.dart';
 
+// 🔥 Global Navigator Key for Deep Linking
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 // 🔥 Background handler (required for notifications when app is closed)
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     await Firebase.initializeApp(
@@ -31,31 +35,39 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
   print("Handling background message: ${message.messageId}");
 }
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await HapticService.init(); // 📳
+  
+  // 🔥 Cold Start Mitigation: Wake up the cloud backend immediately in the background
+  ApiService.wakeUpBackend();
 
-  // 🔥 Initialize Firebase
+  // 🔥 1. Initialize Firebase first (Mandatory for NotificationService)
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   } catch (e) {
-    // Firebase already initialized by native Android layer — safe to ignore
-    debugPrint('Firebase already initialized: $e');
+    debugPrint('Firebase Initialization Status: $e');
   }
+
+  // 🔥 2. Parallel initialization of other core services
+  await Future.wait([
+    HapticService.init(),
+    ApiService.initializeBackend(),
+  ]);
+
+  // 🔥 3. Initialize Notifications after Firebase is guaranteed to be ready
+  await NotificationService().init();
 
   // 🔥 Register background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // 🔥 Initialize Local Notifications
-  await NotificationService().init();
+  // 🔥 Allow Foreground Notifications (Heads Up)
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
 
-  // 🔥 Determine best backend (Local vs Render)
-  await ApiService.initializeBackend();
-
-  // 🔥 Initialize Sockets with the correct URL
+  // 🔥 Initialize Sockets with the correct URL (Must happen after ApiService.initializeBackend)
   SocketService.init();
 
   // 🔥 Handle Foreground Messages
@@ -125,6 +137,7 @@ class SmridgeApp extends StatelessWidget {
       onTapDown: (_) => HapticService.light(),
       behavior: HitTestBehavior.translucent,
       child: MaterialApp(
+        navigatorKey: navigatorKey,
         title: 'Smridge',
         debugShowCheckedModeBanner: false,
         theme: finalTheme.copyWith(

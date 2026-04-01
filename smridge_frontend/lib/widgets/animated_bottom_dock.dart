@@ -68,29 +68,28 @@ class _AnimatedBottomDockState extends State<AnimatedBottomDock> with SingleTick
     if (rawIndex >= 4) return 4;
     return rawIndex;
   }
-
   @override
   Widget build(BuildContext context) {
-    List<IconData> icons = [
-      Icons.home,          
-      Icons.monitor_heart, 
-      Icons.kitchen,       
-      Icons.add_box,       
-      Icons.settings,      
+    List<Map<String, dynamic>> navItems = [
+      {'icon': Icons.home, 'label': 'Home'},
+      {'icon': Icons.insert_chart_outlined, 'label': 'Status'}, // ⚡ Index 1: Activity -> Status
+      {'icon': Icons.kitchen, 'label': 'Fridge'},
+      {'icon': Icons.add_circle_outline, 'label': 'Add'}, // ⚡ Index 3: Scan -> Add
+      {'icon': Icons.settings, 'label': 'Settings'},
     ];
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withOpacity(0.1), width: 0.5),
+        color: Colors.black.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(35),
+        border: Border.all(color: Colors.white12, width: 0.5),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, spreadRadius: 10)
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(35),
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -102,7 +101,7 @@ class _AnimatedBottomDockState extends State<AnimatedBottomDock> with SingleTick
                     progress: _rippleController.value,
                     startIndex: _lastIndex!,
                     endIndex: _targetIndex!,
-                    itemCount: icons.length,
+                    itemCount: navItems.length,
                   ),
                 ),
               ),
@@ -111,7 +110,8 @@ class _AnimatedBottomDockState extends State<AnimatedBottomDock> with SingleTick
               fit: BoxFit.scaleDown,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: List.generate(icons.length, (index) {
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: List.generate(navItems.length, (index) {
                   int visualIndex = _resolveVisualIndex(widget.currentIndex);
                   bool active = visualIndex == index;
 
@@ -125,35 +125,53 @@ class _AnimatedBottomDockState extends State<AnimatedBottomDock> with SingleTick
                       HapticService.heavy();
                       widget.onDoubleTap?.call(index);
                     },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                        padding: EdgeInsets.all(active ? 14 : 10),
-                        decoration: BoxDecoration(
-                          color: active ? Colors.tealAccent.withOpacity(0.12) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                        child: AnimatedScale(
-                          scale: active ? 1.25 : 1.0,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeOutBack,
-                          child: AnimatedRotation(
-                            turns: active ? 0.0 : -0.04,
-                            duration: const Duration(milliseconds: 300),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: EdgeInsets.symmetric(
+                        vertical: 12, 
+                        horizontal: active ? 20 : 12
+                      ),
+                      decoration: BoxDecoration(
+                        color: active ? Colors.tealAccent.withOpacity(0.15) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(25),
+                        border: active ? Border.all(color: Colors.tealAccent.withOpacity(0.3), width: 0.5) : null,
+                      ),
+                      child: Row(
+                        children: [
+                          AnimatedRotation(
+                            turns: active ? 0 : -0.023, // 📐 Straightens from -0.15 rad on selection
+                            duration: const Duration(milliseconds: 400),
                             curve: Curves.easeOutBack,
                             child: Icon(
-                              icons[index],
+                              navItems[index]['icon'],
                               color: active ? Colors.tealAccent : Colors.white60,
-                              size: 26,
+                              size: 24,
                               shadows: active ? [
                                 Shadow(color: Colors.tealAccent.withOpacity(0.8), blurRadius: 15),
-                                const Shadow(color: Colors.white, blurRadius: 2)
+                                const Shadow(color: Colors.white, blurRadius: 1)
                               ] : null,
                             ),
+                          ).animate(target: active ? 1 : 0).scale(
+                            begin: const Offset(1, 1),
+                            end: const Offset(1.1, 1.1),
                           ),
-                        ),
+                          
+                          // 🔹 Expanding Label for Active Tab
+                          if (active) ...[
+                            const SizedBox(width: 10),
+                            Text(
+                              navItems[index]['label'],
+                              style: const TextStyle(
+                                color: Colors.tealAccent,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ).animate().fadeIn(delay: 100.ms).slideX(begin: -0.2, end: 0),
+                          ],
+                        ],
                       ),
                     ),
                   );

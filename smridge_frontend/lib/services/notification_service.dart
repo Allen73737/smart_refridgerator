@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -9,6 +12,7 @@ import 'package:provider/provider.dart';
 import '../providers/fridge_customization_provider.dart';
 import 'api_service.dart';
 import 'secure_storage_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -16,6 +20,9 @@ class NotificationService {
   factory NotificationService() => _instance;
 
   NotificationService._internal();
+
+  // 🔔 Stream for deep-linking
+  static final StreamController<String?> selectNotificationStream = StreamController<String?>.broadcast();
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
@@ -28,60 +35,100 @@ class NotificationService {
       settings,
       onDidReceiveNotificationResponse: (response) {
         print("🔔 Notification Clicked: ${response.payload}");
+        selectNotificationStream.add(response.payload);
       },
     );
+
+    // 🛡️ Request Permissions immediately for Android 13+
+    await requestPermissions();
     
     // 🏗️ Pre-create Notification Channels for Android 8.0+
     final androidImplementation = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     if (androidImplementation != null) {
+      // 🚀 RENAMED TO _v2 TO FORCE NEW REGISTRATION (fixes previously silenced channels)
+      // 🚀 HARD RESET: Purge ALL previous channels to force-update Importance & Vibration settings
+      // 🚀 NUCLEAR RESET (v5): Purge all previous channels to ensure fresh Importance & Vibration settings
+      final channels = [
+        'high_importance_channel_v5',
+        'live_timer_channel_v5',
+        'reminder_timer_channel_v5',
+        'timer_end_channel_v5',
+        // Purge legacy v3 and v4 as well
+        'high_importance_channel_v3',
+        'live_timer_channel_v4',
+        'reminder_timer_channel_v4',
+        'timer_end_channel_v4',
+        'expiry_countdown_channel_v3',
+        'expiry_scheduled_channel_v3',
+        'custom_reminders_channel_v3'
+      ];
+      for (final c in channels) {
+        await androidImplementation.deleteNotificationChannel(c);
+      }
+      
       await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'high_importance_channel', 'High Importance Alerts', importance: Importance.max, description: 'Critical fridge alerts'
+        'high_importance_channel_v5', 'Smridge Alerts', importance: Importance.max, description: 'Critical alerts', playSound: true, showBadge: true, enableVibration: true
       ));
       await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'live_timer_channel', 'Active Kitchen Timers', importance: Importance.max, description: 'Ongoing countdowns'
+        'live_timer_channel_v5', 'Smridge Live Timers', importance: Importance.max, description: 'Ongoing countdowns', playSound: true, showBadge: true, enableVibration: true
       ));
       await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'expiry_countdown_channel', 'Expiry Enforcement', importance: Importance.max, description: 'Final warnings'
-      ));
-      // 🔔 Previously missing channels — now registered
-      await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'timer_end_channel', 'Timer Completion Alerts', importance: Importance.max, description: 'Timer finished alarm'
+        'reminder_timer_channel_v5', 'Smridge Active Reminders', importance: Importance.max, description: 'Live reminder countdown', playSound: true, showBadge: true, enableVibration: true
       ));
       await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'expiry_scheduled_channel', 'Scheduled Expiry Alerts', importance: Importance.max, description: '3-hour expiry warning'
+        'timer_end_channel_v5', 'Smridge Alarms', importance: Importance.max, description: 'Timer finished alarm', playSound: true, enableVibration: true
       ));
-      await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'custom_reminders_channel', 'Personal Reminders', importance: Importance.max, description: 'User-set item reminders'
-      ));
-      await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
-        'reminder_timer_channel', 'Active Reminders', importance: Importance.max, description: 'Live reminder countdown'
-      ));
+      
+      // 🧪 Trigger Vibration Diagnostic
+      await showVibrationDebug();
     }
 
 
-    // 🕒 Initialize Timezones for accurate Device-Time Scheduling
     tz.initializeTimeZones();
-    
+    await _initializeLocation();
+  }
+
+  Future<void> _initializeLocation() async {
     try {
-      final timeZoneName = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(timeZoneName.toString())); // 🔹 Ensures String conversion
-      debugPrint("🕒 Timezone initialized to: $timeZoneName");
+      final timeZoneInfo = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timeZoneInfo.toString())); 
+      debugPrint("🕒 SMRIDGE: Timezone initialized to: $timeZoneInfo");
     } catch (e) {
-      debugPrint("🕒 Timezone fallback to Asia/Kolkata: $e");
+      debugPrint("🕒 SMRIDGE: Fallback to Asia/Kolkata: $e");
       tz.setLocalLocation(tz.getLocation("Asia/Kolkata"));
     }
   }
 
-  Future<void> requestPermissions() async {
-    // 1. FCM Permissions
-    await _fcm.requestPermission(alert: true, badge: true, sound: true);
+  /// 🌏 Sync with User Profile Timezone
+  Future<void> syncTimezone(String timezoneName) async {
+    try {
+      if (timezoneName.isNotEmpty) {
+        tz.setLocalLocation(tz.getLocation(timezoneName));
+        debugPrint("🌏 SMRIDGE: Location Synced to Database: $timezoneName");
+      }
+    } catch (e) {
+      debugPrint("🌏 SMRIDGE Sync Error: $e");
+    }
+  }
 
-    // 2. Android 13+ Local Notification Permission
-    final androidImplementation = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    if (androidImplementation != null) {
-      await androidImplementation.requestNotificationsPermission();
-      // Also request exact alarm permission if needed
-      await androidImplementation.requestExactAlarmsPermission();
+  Future<void> requestPermissions() async {
+    try {
+      // 1. FCM Permissions
+      await _fcm.requestPermission(alert: true, badge: true, sound: true);
+    } catch (e) {
+      print("🔔 FCM Permission Exception: $e");
+    }
+
+    try {
+      // 2. Android 13+ Local Notification Permission
+      final androidImplementation = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImplementation != null) {
+        await androidImplementation.requestNotificationsPermission();
+        // Also request exact alarm permission if needed
+        await androidImplementation.requestExactAlarmsPermission();
+      }
+    } catch (e) {
+      print("🔔 Android Plugin Permission Exception: $e");
     }
   }
 
@@ -123,22 +170,26 @@ class NotificationService {
     }
 
     if (context != null) {
-      final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
-      bool isExpiry = title.toLowerCase().contains('expir') || body.toLowerCase().contains('expir');
-      if (isExpiry) {
-        AudioService.playNotification(index: customizer.expiryNotificationSoundIndex, customPath: customizer.customExpiryNotificationSoundPath);
-      } else {
-        AudioService.playNotification(index: customizer.notificationSoundIndex, customPath: customizer.customNotificationSoundPath);
+      try {
+        final customizer = Provider.of<FridgeCustomizationProvider>(context, listen: false);
+        bool isExpiry = title.toLowerCase().contains('expir') || body.toLowerCase().contains('expir');
+        if (isExpiry) {
+          AudioService.playNotification(index: customizer.expiryNotificationSoundIndex, customPath: customizer.customExpiryNotificationSoundPath);
+        } else {
+          AudioService.playNotification(index: customizer.notificationSoundIndex, customPath: customizer.customNotificationSoundPath);
+        }
+      } catch (e) {
+        AudioService.playNotification();
       }
     } else {
       AudioService.playNotification();
     }
 
     final androidDetails = AndroidNotificationDetails(
-      'high_importance_channel',
-      'High Importance Notifications',
+      'high_importance_channel_v3',
+      'Smridge Critical Alerts',
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       icon: 'ic_notif',
       color: notificationColor, // 🔹 Status bar color support
       ledColor: notificationColor,
@@ -148,39 +199,52 @@ class NotificationService {
 
     final details = NotificationDetails(android: androidDetails);
 
-    // 🎯 ID Safety: modulo 100M to keep within Android Int32 range
-    final int notifId = (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 100000000;
+    // 🎯 ID Safety: Use microseconds to ensure uniqueness in rapid iteration
+    final int notifId = DateTime.now().microsecondsSinceEpoch.remainder(100000000);
 
-    await _plugin.show(
-      notifId,
-      "🧊 SMRIDGE: $title",
-      body,
-      details,
-    );
+    try {
+      await _plugin.show(
+        notifId,
+        "🧊 SMRIDGE: $title",
+        body,
+        details,
+      );
+    } catch (e) {
+      print("🔔 Error displaying standard notification: $e");
+    }
   }
 
   /// ⏲️ Official OS-Level Live Timer Notification
-  Future<void> showLiveTimer(String title, Duration duration) async {
-    final targetTime = DateTime.now().add(duration);
-    final id = 999;
+  Future<void> showLiveTimer(String title, Duration duration, {int? itemId}) async {
+    final targetTime = DateTime.now().add(duration).toLocal();
+    final id = itemId ?? (title.hashCode.abs() % 1000000);
 
     final String timeStr = "${targetTime.hour.toString().padLeft(2, '0')}:${targetTime.minute.toString().padLeft(2, '0')}";
     
+    final prefs = await SharedPreferences.getInstance();
+    final bool enableVib = prefs.getBool('vibration_alerts_enabled') ?? true;
+
     final androidDetails = AndroidNotificationDetails(
-      'live_timer_channel',
-      'Active Kitchen Timers',
+      'live_timer_channel_v5',
+      'Smridge Live Timers',
       importance: Importance.max,
-      priority: Priority.high,
-      ongoing: true,
+      priority: Priority.max,
+      ongoing: true, // 📌 Keeps it in the notification shade
+      autoCancel: false, // 📌 Prevents tapping from dismissing it
       showWhen: true,
+      usesChronometer: true,
+      chronometerCountDown: true,
+      when: targetTime.millisecondsSinceEpoch,
       icon: 'ic_notif',
       color: const Color(0xFF00FFD1),
+      enableVibration: enableVib,
+      vibrationPattern: enableVib ? Int64List.fromList([0, 500, 200, 500, 200, 500]) : null, // 🛠️ Extended pattern
       category: AndroidNotificationCategory.status,
       visibility: NotificationVisibility.public,
       styleInformation: BigTextStyleInformation(
-        "⏱️ <b>STRICT DEADLINE: <font color='#00FFD1'>$timeStr</font></b><br/><br/>Smridge 🧊 is watching your kitchen with eagle eyes!👀 Don't let your food down! 🚀",
-        contentTitle: "⚡ LIVE SMRIDGE TRACKER: $title",
-        summaryText: "Smridge Kitchen Protocol",
+        "⏱️ <b>DEADLINE: <font color='#00FFD1'>$timeStr</font></b><br/><br/>Smridge 🧊 is tracking your item! Don't forget! 🚀",
+        contentTitle: "⚡ LIVE SMRIDGE: $title",
+        summaryText: "Smridge Tracker",
         htmlFormatContent: true,
         htmlFormatContentTitle: true,
       ),
@@ -202,13 +266,17 @@ class NotificationService {
 
   Future<void> _scheduleTimerEndAlert(int id, String title, DateTime targetTime) async {
     final androidDetails = AndroidNotificationDetails(
-      'timer_end_channel',
-      'Timer Completion Alerts',
+      'timer_end_channel_v5',
+      'Smridge Alarms',
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       icon: 'ic_notif',
       color: const Color(0xFFFF004D),
       audioAttributesUsage: AudioAttributesUsage.alarm,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 2000, 500, 2000, 500, 2000, 500, 2000]),
     );
 
     final details = NotificationDetails(android: androidDetails);
@@ -219,25 +287,27 @@ class NotificationService {
       "Your $title is done! Smridge 🧊 demands your attention! 🏃‍♂️",
       tz.TZDateTime.from(targetTime, tz.local),
       details,
+      payload: 'inventory:$title',
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
     );
   }
 
-  Future<void> showCountdownNotification(String itemName, DateTime expiry) async {
+  Future<void> showCountdownNotification(String itemName, DateTime expiry, {int? itemId}) async {
     final now = DateTime.now();
-    final diff = expiry.difference(now);
+    final localExpiry = expiry.toLocal();
+    final diff = localExpiry.difference(now);
     
     // 🔹 Only show if within 3 hours of expiry
     if (diff.isNegative || diff.inHours > 3) return;
 
-    final String timeStr = "${expiry.hour.toString().padLeft(2, '0')}:${expiry.minute.toString().padLeft(2, '0')}";
+    final String timeStr = "${localExpiry.hour.toString().padLeft(2, '0')}:${localExpiry.minute.toString().padLeft(2, '0')}";
 
     final androidDetails = AndroidNotificationDetails(
-      'expiry_countdown_channel',
-      'Expiry Countdown',
+      'expiry_countdown_channel_v3',
+      'Smridge Expiry Alerts',
       importance: Importance.max, 
-      priority: Priority.high,
+      priority: Priority.max,
       fullScreenIntent: diff.inHours < 1, 
       ongoing: true,
       showWhen: true,
@@ -261,10 +331,11 @@ class NotificationService {
     final details = NotificationDetails(android: androidDetails);
     
     await _plugin.show(
-      itemName.hashCode, 
+      itemId ?? itemName.hashCode, 
       "🚨 URGENT: $itemName ALERT",
       "Critical deadline at $timeStr! 😱",
       details,
+      payload: 'inventory:$itemName',
     );
   }
 
@@ -279,10 +350,10 @@ class NotificationService {
     if (scheduledDate.isBefore(now)) return;
 
     final androidDetails = AndroidNotificationDetails(
-      'expiry_scheduled_channel',
-      'Scheduled Expiry Alerts',
+      'expiry_scheduled_channel_v3',
+      'Scheduled Smridge Alerts',
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       icon: 'ic_notif',
       color: const Color(0xFF00F2FF),
     );
@@ -295,28 +366,37 @@ class NotificationService {
       "Hey! 👋 Don't forget about your **$itemName**! It's expiring in 3 hours. Time for a delicious meal or Smridge will cry! 😭🧊",
       tz.TZDateTime.from(scheduledDate, tz.local),
       details,
+      payload: 'inventory:$itemName',
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
     );
   }
 
   // 🚀 Schedule a custom user reminder with Timer support
-  Future<void> scheduleLocalReminder(int id, String itemName, DateTime scheduledDate) async {
+  Future<void> scheduleLocalReminder(int id, String itemName, DateTime scheduledDate, {String? imagePath}) async {
     final now = DateTime.now();
     final localScheduled = scheduledDate.isUtc ? scheduledDate.toLocal() : scheduledDate;
+
+    // 🧊 Fix negative IDs and scale for safety
+    final int safeId = id.abs() % 100000;
+
+    // 🧹 HARD CANCEL any existing timers to prevent duplicates when updating
+    await cancelNotification(safeId + 20000); 
+    await cancelNotification(safeId + 50000); 
+    await cancelNotification((safeId + 30000) % 100000000); 
 
     if (localScheduled.isBefore(now)) return;
 
     // 🧊 ALWAYS show a live timer notification in the shade when reminder is set
-    await showReminderTimerNotification(id, itemName, localScheduled);
+    await showReminderTimerNotification(safeId, itemName, localScheduled, imagePath: imagePath);
     // 🚀 Schedule the zero-point "Expired" alert
-    await _scheduleTimerEndAlert(id + 50000, "🧊 Reminder: $itemName", localScheduled);
+    await _scheduleTimerEndAlert(safeId + 50000, "🧊 Reminder: $itemName", localScheduled);
 
     final androidDetails = AndroidNotificationDetails(
-      'custom_reminders_channel',
-      'Personal Reminders',
+      'custom_reminders_channel_v3',
+      'Smridge Personal Reminders',
       importance: Importance.max,
-      priority: Priority.high,
+      priority: Priority.max,
       icon: 'ic_notif',
       color: const Color(0xFFFFAB00), 
       groupKey: 'smridge_reminders',
@@ -333,18 +413,19 @@ class NotificationService {
     final details = NotificationDetails(android: androidDetails);
 
     await _plugin.zonedSchedule(
-      id + 20000, 
+      safeId + 20000, 
       "👀 Smridge is watching: $itemName",
       "Check your $itemName now to keep Smridge happy! ✨",
       tz.TZDateTime.from(localScheduled, tz.local),
       details,
+      payload: 'inventory:$itemName',
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
     );
   }
 
   // ⏲️ Ongoing Timer Notification for Reminders
-  Future<void> showReminderTimerNotification(int id, String itemName, DateTime targetTime) async {
+  Future<void> showReminderTimerNotification(int id, String itemName, DateTime targetTime, {String? imagePath}) async {
     final now = DateTime.now();
     final diff = targetTime.difference(now);
     if (diff.isNegative) return;
@@ -352,29 +433,59 @@ class NotificationService {
     final String timeStr = "${targetTime.hour.toString().padLeft(2, '0')}:${targetTime.minute.toString().padLeft(2, '0')}";
     
     // 🎯 ID Safety: ensured within Android range
-    final int safeId = (id + 30000) % 100000000;
-    print("⏲️ Attempting to show reminder timer [ID: $safeId] for $itemName at $timeStr");
+    final int safeId = (id.abs() + 30000) % 100000000;
+    print("⏲️ Attempting to show premium reminder timer [ID: $safeId] for $itemName at $timeStr");
+
+    // 🎨 UI: Determine LargeIcon (Item Image or Brand Icon)
+    AndroidBitmap<Object>? largeIcon;
+    if (imagePath != null && imagePath.isNotEmpty) {
+      if (File(imagePath).existsSync()) {
+        largeIcon = FilePathAndroidBitmap(imagePath);
+      }
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final bool enableVib = prefs.getBool('vibration_alerts_enabled') ?? true;
 
     final androidDetails = AndroidNotificationDetails(
-      'reminder_timer_channel',
-      'Active Reminders',
+      'reminder_timer_channel_v5',
+      'Smridge Active Reminders',
       importance: Importance.max, 
-      priority: Priority.high,
+      priority: Priority.max,
       ongoing: true,
       showWhen: true,
+      usesChronometer: true,
+      chronometerCountDown: true,
+      when: targetTime.millisecondsSinceEpoch,
       icon: 'ic_notif',
-      color: const Color(0xFFFFAB00),
-      groupKey: 'smridge_timers',
-      onlyAlertOnce: true, // Don't beep every update
+      largeIcon: largeIcon,
+      color: const Color(0xFF00E5FF),
+      enableVibration: enableVib,
+      vibrationPattern: enableVib ? Int64List.fromList([0, 500, 200, 500, 200, 500]) : null,
+      category: AndroidNotificationCategory.status,
+      visibility: NotificationVisibility.public,
       styleInformation: BigTextStyleInformation(
-        "👀 <b>SMRIDGE IS TRACKING</b>: Deadline at <b><font color='#FFAB00'>$timeStr</font></b><br/><br/>Your reminder for <b>$itemName</b> is ticking! Smridge 🧊 hates tardiness! 🥗✨",
-        contentTitle: "⚡ TARGET REACHED: $itemName",
+        "⏱️ <b>DEADLINE APPROACHING: <font color='#00E5FF'>$itemName</font></b> at $timeStr<br/><br/>"
+        "Smridge 🧊 is tracking your inventory! ✨🚀",
+        contentTitle: "⚡ LIVE SMRIDGE TRACKER: $itemName",
         summaryText: "Smridge Active Protocol",
         htmlFormatContent: true,
         htmlFormatContentTitle: true,
       ),
-      category: AndroidNotificationCategory.status,
-      visibility: NotificationVisibility.public,
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'view_fridge',
+          'OPEN FRIDGE 🧊',
+          titleColor: const Color(0xFF00E5FF),
+          showsUserInterface: true,
+          cancelNotification: false,
+        ),
+        AndroidNotificationAction(
+          'clear_timer',
+          'DISMISS',
+          cancelNotification: true,
+        ),
+      ],
     );
 
     final details = NotificationDetails(android: androidDetails);
@@ -382,9 +493,10 @@ class NotificationService {
     try {
       await _plugin.show(
         safeId, 
-        "🧊⏳ TARGET REACHED: $itemName",
+        "🧊⏳ REMINDER COUNTDOWN: $itemName",
         "Deadline set for $timeStr! ✨",
         details,
+        payload: 'inventory:$itemName',
       );
       print("✅ Reminder timer notification pushed successfully.");
     } catch (e) {
@@ -397,8 +509,55 @@ class NotificationService {
     await _plugin.cancel(id);
   }
 
+  // 🧪 DIAGNOSTIC: Test Notification
+  Future<void> showTestNotification() async {
+    // 🛡️ Extra check on every test
+    await requestPermissions();
+
+    const androidDetails = AndroidNotificationDetails(
+      'high_importance_channel_v3',
+      'Smridge Critical Alerts',
+      importance: Importance.max,
+      priority: Priority.max,
+      icon: 'ic_notif',
+      color: Color(0xFF00F2FF),
+      fullScreenIntent: true,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    
+    await _plugin.show(
+      888, 
+      "🧊 SMRIDGE: System Test",
+      "If you see this, notifications are working perfectly! 🚀",
+      details,
+    );
+    print("✅ Test notification pushed successfully.");
+  }
+
   // 🗑️ Clear all scheduled notifications
   Future<void> cancelAllScheduled() async {
     await _plugin.cancelAll();
+  }
+
+  // 🧪 DIAGNOSTIC: Force Vibration on launch
+  Future<void> showVibrationDebug() async {
+    final androidDetails = AndroidNotificationDetails(
+      'high_importance_channel_v5',
+      'Smridge Alerts',
+      importance: Importance.max,
+      priority: Priority.max,
+      icon: 'ic_notif',
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 500, 200, 500, 400, 500, 200, 500]), // 📳 DOUBLE PULSE
+    );
+    final details = NotificationDetails(android: androidDetails);
+    
+    await _plugin.show(
+      999, 
+      "📳 SMRIDGE VIBRATION TEST",
+      "If the device is vibrating, your notification system is working perfectly! 🚀",
+      details,
+    );
+    print("✅ Startup vibration test pushed successfully.");
   }
 }

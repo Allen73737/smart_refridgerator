@@ -56,12 +56,22 @@ exports.scanBarcode = async (req, res) => {
         const { barcodeNumber } = req.params;
         if (!barcodeNumber) return res.status(400).json({ message: "Barcode is required" });
 
-        const response = await axios.get(`https://world.openfoodfacts.org/api/v0/product/${barcodeNumber}.json`, {
-            headers: { 'User-Agent': 'SmridgeApp - Android - Version 1.0' }
+        const code = barcodeNumber.trim();
+        const apiUrl = `https://world.openfoodfacts.org/api/v2/product/${code}.json`;
+        
+        console.log(`📡 [OFF] Fetching product: ${apiUrl}`);
+
+        const response = await axios.get(apiUrl, {
+            headers: { 
+                'User-Agent': 'SmridgeApp - Android/iOS - Version 1.0 - contact@smridge.com',
+                'Accept': 'application/json'
+            }
         });
 
-        if (response.data.status !== 1) {
-            return res.status(404).json({ message: "Product not found. Please enter details manually." });
+        // OpenFoodFacts v2 returns status: "product_found" or status: "product_not_found"
+        const status = response.data.status;
+        if (status === "product_not_found" || response.data.status_verbose?.includes("not found")) {
+            return res.status(404).json({ message: "Product not detected in OpenFoodFacts. Please enter details manually." });
         }
 
         const product = response.data.product;

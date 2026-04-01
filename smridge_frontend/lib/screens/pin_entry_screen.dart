@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:intl/intl.dart';
+import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 import '../services/haptic_service.dart';
 import 'home_screen.dart';
@@ -21,6 +24,57 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
   String _enteredPin = "";
   String _errorMessage = "";
   bool _isLocked = false;
+  
+  // 🔐 Confirmation Logic
+  String? _firstPin;
+  bool _isConfirmingStep = false;
+  
+  // 🛡️ Lockout Logic
+  int _failedAttempts = 0;
+  DateTime? _lockoutUntil;
+  Timer? _lockoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLockout();
+  }
+
+  @override
+  void dispose() {
+    _lockoutTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkLockout() async {
+    final lockout = await SecureStorageService.getLockoutUntil();
+    if (lockout != null && lockout.isAfter(DateTime.now())) {
+      setState(() {
+        _lockoutUntil = lockout;
+        _isLocked = true;
+        _errorMessage = "Too many attempts. Locked until ${DateFormat('HH:mm:ss').format(lockout)}";
+      });
+      _startLockoutTimer(lockout.difference(DateTime.now()));
+    } else {
+      _failedAttempts = await SecureStorageService.getFailedAttempts();
+    }
+  }
+
+  void _startLockoutTimer(Duration duration) {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = Timer(duration, () {
+      if (mounted) {
+        setState(() {
+          _isLocked = false;
+          _lockoutUntil = null;
+          _errorMessage = "";
+          _failedAttempts = 0;
+        });
+        SecureStorageService.setFailedAttempts(0);
+        SecureStorageService.setLockoutUntil(null);
+      }
+    });
+  }
 
   void _onDigitPress(String digit) {
     if (_isLocked || _enteredPin.length >= 4) return;
@@ -31,7 +85,11 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
     });
 
     if (_enteredPin.length == 4) {
-      _verifyPin();
+      if (widget.isConfirming) {
+        _handleSetupPin();
+      } else {
+        _verifyPin();
+      }
     }
   }
 
@@ -43,6 +101,52 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
     });
   }
 
+  Future<void> _handleSetupPin() async {
+    setState(() => _isLocked = true);
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    if (!_isConfirmingStep) {
+      // First step of setup
+      setState(() {
+        _firstPin = _enteredPin;
+        _enteredPin = "";
+        _isConfirmingStep = true;
+        _isLocked = false;
+        _errorMessage = "Now confirm your PIN";
+      });
+      HapticService.medium();
+    } else {
+      // Confirmation step
+      if (_enteredPin == _firstPin) {
+        // Success!
+        final token = await SecureStorageService.getToken();
+        if (token != null) {
+          // 🚀 SYNC PIN TO BACKEND
+          await ApiService.updateProfile("", "", token, appPin: _enteredPin);
+        }
+        await SecureStorageService.savePin(_enteredPin);
+        HapticService.heavy();
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text("PIN Secured Successfully"), backgroundColor: Colors.teal),
+           );
+           if (widget.onSuccess != null) widget.onSuccess!();
+           else Navigator.pop(context);
+        }
+      } else {
+        // Mismatch
+        HapticService.error();
+        setState(() {
+          _errorMessage = "PINs do not match. Start over.";
+          _enteredPin = "";
+          _firstPin = null;
+          _isConfirmingStep = false;
+          _isLocked = false;
+        });
+      }
+    }
+  }
+
   Future<void> _verifyPin() async {
     setState(() => _isLocked = true);
     final savedPin = await SecureStorageService.getPin();
@@ -51,6 +155,7 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
 
     if (_enteredPin == savedPin) {
       HapticService.heavy();
+      await SecureStorageService.setFailedAttempts(0);
       if (widget.onSuccess != null) {
         widget.onSuccess!();
       } else {
@@ -69,11 +174,26 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
       }
     } else {
       HapticService.error();
-      setState(() {
-        _errorMessage = "Incorrect PIN. Try again.";
-        _enteredPin = "";
-        _isLocked = false;
-      });
+      _failedAttempts++;
+      await SecureStorageService.setFailedAttempts(_failedAttempts);
+      
+      if (_failedAttempts >= 5) {
+        final lockoutTime = DateTime.now().add(const Duration(seconds: 30));
+        await SecureStorageService.setLockoutUntil(lockoutTime);
+        setState(() {
+          _lockoutUntil = lockoutTime;
+          _errorMessage = "Too many attempts. Locked for 30s.";
+          _enteredPin = "";
+          _isLocked = true;
+        });
+        _startLockoutTimer(const Duration(seconds: 30));
+      } else {
+        setState(() {
+          _errorMessage = "Incorrect PIN. Attempt $_failedAttempts/5";
+          _enteredPin = "";
+          _isLocked = false;
+        });
+      }
     }
   }
 
@@ -100,20 +220,22 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                 const SizedBox(height: 20),
                 
                 Text(
-                  "SECURE ACCESS",
+                  widget.isConfirming ? "SETUP SECURITY" : "IDENTITY VERIFIED",
                   style: GoogleFonts.orbitron(
                     color: Colors.white,
-                    fontSize: 24,
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
+                    letterSpacing: 3,
                   ),
                 ).animate().fadeIn(duration: 800.ms).slideY(begin: 0.2),
 
                 const SizedBox(height: 10),
                 
                 Text(
-                  "Enter your 4-digit PIN",
-                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 16),
+                  _isConfirmingStep 
+                      ? "Confirm your new 4-digit PIN" 
+                      : (widget.isConfirming ? "Enter a new 4-digit PIN" : "Verification required to proceed"),
+                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
                 ).animate().fadeIn(delay: 400.ms),
 
                 const SizedBox(height: 50),

@@ -5,6 +5,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_settings/app_settings.dart';
 import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -52,16 +54,42 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   double _progressValue = 0.0;
   
   Timer? _pollingTimer;
+  
+  // ⚙️ Hardware Setup Settings
+  bool _autoReconnect = true;
+  bool _aggressiveScan = false;
+  double _sensitivity = 0.7;
 
   @override
   void initState() {
     super.initState();
     if (widget.isReconnecting) {
-      _wifiSsidController.text = widget.initialSsid ?? '';
-      _wifiPasswordController.text = widget.initialPassword ?? '';
-      _currentStep = SetupStep.wifiConfig; // Jump to WiFi config directly for reconnection
+       _wifiSsidController.text = widget.initialSsid ?? '';
+       _wifiPasswordController.text = widget.initialPassword ?? '';
+       _currentStep = SetupStep.wifiConfig;
     }
     _loadCurrentWifi();
+    _loadSetupSettings();
+  }
+
+  Future<void> _loadSetupSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _autoReconnect = prefs.getBool('setup_auto_reconnect') ?? true;
+      _aggressiveScan = prefs.getBool('setup_aggressive_scan') ?? false;
+      _sensitivity = prefs.getDouble('setup_sensitivity') ?? 0.7;
+    });
+  }
+
+  Future<void> _saveSetting(String key, dynamic value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (value is bool) await prefs.setBool(key, value);
+    if (value is double) await prefs.setDouble(key, value);
+    setState(() {
+      if (key == 'setup_auto_reconnect') _autoReconnect = value;
+      if (key == 'setup_aggressive_scan') _aggressiveScan = value;
+      if (key == 'setup_sensitivity') _sensitivity = value;
+    });
   }
 
   Future<void> _loadCurrentWifi() async {
@@ -103,13 +131,25 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   // --- LOGIC FOR STEP 2: DETECTION ---
   Future<void> _checkEspConnection() async {
     setState(() => _isCheckingWifi = true);
+    
+    // 🔍 Step 1: Basic WiFi check
     await _loadCurrentWifi();
-    setState(() => _isCheckingWifi = false);
+    
+    if (_currentSsid == null || !_currentSsid!.toUpperCase().contains("SMRIDGE_SETUP")) {
+      setState(() => _isCheckingWifi = false);
+      SnackbarUtils.showWarning(context, "Not connected to SMRIDGE_SETUP. Current WiFi: ${_currentSsid ?? 'None'}");
+      return;
+    }
 
-    if (_currentSsid != null && _currentSsid!.toUpperCase().contains("SMRIDGE_SETUP")) {
+    // 📡 Step 2: Active Ping to check Hardware Health
+    final isAlive = await ApiService.checkEspHealth();
+    
+    setState(() => _isCheckingWifi = false);
+    
+    if (isAlive) {
       _nextStep();
     } else {
-      SnackbarUtils.showWarning(context, "Not connected to SMRIDGE_SETUP. Please check your WiFi settings.");
+      SnackbarUtils.showError(context, "ESP32 Device not responding. Please ensure you are connected to its Access Point.");
     }
   }
 
@@ -212,8 +252,20 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               const SizedBox(height: 25),
               Text("SETUP CONFIGURATION", style: GoogleFonts.orbitron(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 2)),
               const SizedBox(height: 30),
-              _buildConfigTile(Icons.sync_outlined, "Auto-Reconnect", "Try connecting if signal drops", true),
-              _buildConfigTile(Icons.wifi_tethering_outlined, "Aggressive Scan", "Find hidden devices", false),
+              _buildConfigTile(
+                Icons.sync_outlined, 
+                "Auto-Reconnect", 
+                "Try connecting if signal drops", 
+                _autoReconnect,
+                onChanged: (val) => _saveSetting('setup_auto_reconnect', val),
+              ),
+              _buildConfigTile(
+                Icons.wifi_tethering_outlined, 
+                "Aggressive Scan", 
+                "Find hidden devices", 
+                _aggressiveScan,
+                onChanged: (val) => _saveSetting('setup_aggressive_scan', val),
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -225,8 +277,8 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                       children: [
                         Text("Sensitivity Threshold", style: GoogleFonts.outfit(color: Colors.white, fontSize: 14)),
                         Slider(
-                          value: 0.7,
-                          onChanged: (_) {},
+                          value: _sensitivity,
+                          onChanged: (val) => _saveSetting('setup_sensitivity', val),
                           activeColor: Colors.tealAccent,
                           inactiveColor: Colors.white10,
                         ),
@@ -242,7 +294,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                 "System WiFi Settings", 
                 "Connect to SMRIDGE_SETUP manually", 
                 false,
-                onTap: () => launchUrl(Uri.parse('package:android_settings/wifi_settings')),
+                onTap: () => AppSettings.openAppSettings(type: AppSettingsType.wifi),
               ),
               const SizedBox(height: 40),
             ],
@@ -252,7 +304,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     );
   }
 
-  Widget _buildConfigTile(IconData icon, String title, String sub, bool initialVal, {VoidCallback? onTap}) {
+  Widget _buildConfigTile(IconData icon, String title, String sub, bool initialVal, {VoidCallback? onTap, ValueChanged<bool>? onChanged}) {
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -267,7 +319,11 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                 Text(sub, style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12)),
               ]),
             ),
-            if (onTap == null) Switch(value: initialVal, onChanged: (_) {}, activeColor: Colors.tealAccent),
+            if (onTap == null) Switch(
+              value: initialVal, 
+              onChanged: onChanged, 
+              activeColor: Colors.tealAccent
+            ),
             if (onTap != null) const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 14),
           ],
         ),

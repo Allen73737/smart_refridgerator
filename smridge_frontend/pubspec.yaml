@@ -39,6 +39,7 @@ dependencies:
   network_info_plus: ^6.0.0
   connectivity_plus: ^6.0.3
   url_launcher: ^6.3.0
+  app_settings: ^6.1.1
   flutter_markdown: ^0.7.3+1
   flutter_timezone: ^5.0.2
 

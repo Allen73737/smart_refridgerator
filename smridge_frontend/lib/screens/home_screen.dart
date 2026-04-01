@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import 'login_screen.dart';
 import 'analytics_screen.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../widgets/wave_background.dart';
@@ -60,6 +62,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<Fridge3DState> _fridgeKey = GlobalKey<Fridge3DState>();
+  StreamSubscription<String?>? _notifSubscription; // 🔹 For deep links
+  double? _swipeStartX; // 🔹 For swipe navigation tracking
+  double _swipeDelta = 0; // 🔹 Track swipe distance
   
   // 🎯 Walkthrough Keys
   final GlobalKey _wtFridgeKey = GlobalKey();
@@ -126,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchNotificationsCount();
     _initSocket();
     _setupNotifications();
+    _setupDeepLinking(); // 🔹 Handle notification taps
     _logAppOpen();
 
     // 🔹 Start periodic expiry check every minute
@@ -189,30 +195,73 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _expiryCheckTimer?.cancel(); // 🔹 Clean up timer
+    _notifSubscription?.cancel(); // 🔹 Clean up stream
     SocketService.off('inventory_update');
     SocketService.off('sensor_data');
     SocketService.off('notification_update');
     super.dispose();
   }
 
+  // 🚀 Notification Deep Linking Logic
+  Future<void> _setupDeepLinking() async {
+    // 1. App launched from terminated state via notification
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) _handleNotificationPayload(initialMessage.data['payload'] ?? initialMessage.data['itemId']);
+
+    // 2. App opened from background via Firebase Push
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      _handleNotificationPayload(message.data['payload'] ?? message.data['itemId']);
+    });
+
+    // 3. Local Notification Clicked (Foreground or Background)
+    _notifSubscription = NotificationService.selectNotificationStream.stream.listen((payload) {
+      if (payload != null) _handleNotificationPayload(payload);
+    });
+  }
+
+  void _handleNotificationPayload(String? payload) async {
+    if (payload == null || payload.isEmpty) return;
+    print("🚀 Deep Link Triggered: $payload");
+
+    if (payload.startsWith('inventory:')) {
+      final itemName = payload.split('inventory:').last;
+      
+      // Wait for inventory to load if app just started
+      for (int i=0; i<10; i++) {
+        if (inventory.isNotEmpty) break;
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      try {
+        final item = inventory.firstWhere((i) => i.name == itemName);
+        if (mounted) {
+          setState(() => selectedTab = 0); // Open Fridge view as safest
+          // Give UI a moment to build tab
+          await Future.delayed(const Duration(milliseconds: 300));
+          _showProductDetails(item);
+        }
+      } catch (e) {
+        print("Item not found for deep link: $itemName");
+      }
+    }
+  }
+
   // 🚀 Schedule background notifications for all items
   Future<void> _scheduleExpiryAlerts(List<InventoryItem> items) async {
     final service = NotificationService();
-    // Clear existing to avoid duplicate pings
-    await service.cancelAllScheduled(); 
+    // ⚠️ DO NOT call cancelAllScheduled() here - it destroys reminder timers!
+    // Only cancel and re-schedule expiry alerts (IDs based on stableId directly)
 
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
-      final stableId = item.id.hashCode % 100000000;
+      final stableId = (item.id.hashCode.abs()) % 100000;
 
-      // 🚨 Schedule Expiry Alert (3 hours before)
+      // 🚨 Cancel previous expiry alert for this item then re-schedule
+      await service.cancelNotification(stableId);
       await service.scheduleExpiryNotification(stableId, item.name, item.expiryDate);
 
-      // ⏰ Schedule & Trigger Immediate Shade Timer (if set)
-      if (item.reminderDate != null) {
-        final now = DateTime.now();
-        // 🔹 Use device local time for immediate shade display
-        await service.showReminderTimerNotification(stableId, item.name, item.reminderDate!.toLocal());
+      // ⏰ Schedule reminder timer only if set and in the future
+      if (item.reminderDate != null && item.reminderDate!.toLocal().isAfter(DateTime.now())) {
         await service.scheduleLocalReminder(stableId, item.name, item.reminderDate!.toLocal());
       }
     }
@@ -320,9 +369,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _loadInventory(); // Re-fetch inventory when any change occurs
       
       if (data['action'] == 'add') {
-        SnackbarUtils.showInfo(context, 'New item added to your fridge!');
+        SnackbarUtils.showInfo(context, 'New item ${data['item']['name']} added! 🧊');
+      } else if (data['action'] == 'update') {
+        SnackbarUtils.showInfo(context, 'Item ${data['item']['name']} updated! ✨');
       } else if (data['action'] == 'delete') {
-        SnackbarUtils.showInfo(context, 'An item was removed from your fridge.');
+        SnackbarUtils.showInfo(context, 'Item ${data['name'] ?? 'Unknown'} removed from fridge.');
       }
     });
 
@@ -411,7 +462,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _checkExpiryTimers() {
     if (inventory.isEmpty) return;
     for (var item in inventory) {
-      NotificationService().showCountdownNotification(item.name, item.expiryDate.toLocal());
+       final stableId = (item.id.hashCode.abs()) % 100000;
+       NotificationService().showCountdownNotification(item.name, item.expiryDate.toLocal(), itemId: stableId);
     }
   }
 
@@ -993,9 +1045,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: Icon(Icons.logout, color: isLight ? Colors.red : Colors.redAccent),
                 title: Text("Logout", style: TextStyle(color: isLight ? Colors.red : Colors.redAccent, fontSize: 16)),
-                onTap: () async {
-                  await SecureStorageService.clearAll();
-                  Navigator.pushAndRemoveUntil(context, FadeSlidePageRoute(page: const LoginScreen()), (route) => false);
+                onTap: () {
+                  Navigator.pop(context); // Close drawer
+                  _showLogoutDialog();
                 },
               ),
               const SizedBox(height: 20),
@@ -1012,8 +1064,54 @@ class _HomeScreenState extends State<HomeScreen> {
       // BODY
       ////////////////////////////////////////////////////////////
 
-      body: Stack(
-        children: [
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (details) {
+          if (_addFlowState != AddFlowState.scanner && !_showWalkthrough) {
+            _swipeStartX = details.globalPosition.dx;
+            _swipeDelta = 0;
+          }
+        },
+        onHorizontalDragUpdate: (details) {
+          if (_swipeStartX != null) {
+            _swipeDelta += details.delta.dx;
+          }
+        },
+        onHorizontalDragEnd: (details) {
+          if (_swipeStartX == null) return;
+          final velocity = details.primaryVelocity ?? 0;
+          final totalDx = _swipeDelta;
+          _swipeStartX = null;
+          _swipeDelta = 0;
+
+          const maxSwipeTab = 4;
+          // Swipe RIGHT (go to lower tab)
+          if ((totalDx > 40 || velocity > 200) && selectedTab > 0) {
+            HapticService.light();
+            setState(() {
+              selectedTab = selectedTab - 1;
+              if (selectedTab == 3) {
+                _addFlowState = AddFlowState.choice;
+                _scannedItem = null;
+                _editItemIndex = null;
+              }
+            });
+          } 
+          // Swipe LEFT (go to higher tab)
+          else if ((totalDx < -40 || velocity < -200) && selectedTab < maxSwipeTab) {
+            HapticService.light();
+            setState(() {
+              selectedTab = selectedTab + 1;
+              if (selectedTab == 3) {
+                _addFlowState = AddFlowState.choice;
+                _scannedItem = null;
+                _editItemIndex = null;
+              }
+            });
+          }
+        },
+        child: Stack(
+          children: [
 
           //////////////////////////////////////////////////////////
           // BACKGROUND
@@ -1132,11 +1230,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ).animate().slideY(begin: -1, duration: 800.ms, curve: Curves.easeOutQuart).fadeIn(),
             ),
 
+
           //////////////////////////////////////////////////////////
           // BOTTOM DOCK
           //////////////////////////////////////////////////////////
 
-          if (MediaQuery.of(context).viewInsets.bottom == 0 && _addFlowState != AddFlowState.scanner && !_showWalkthrough)
+          // Dock shows on tabs 0,1,2 (main fridge screens). Swipe handles 0-4 but add/notifications have their own dock logic.
+          if (selectedTab <= 10 &&
+              _addFlowState != AddFlowState.scanner &&
+              !_showWalkthrough)
             Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 10,
             left: 20,
@@ -1419,6 +1521,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     ),
+    ),
     );
   }
 
@@ -1531,6 +1634,11 @@ class _HomeScreenState extends State<HomeScreen> {
             final idx = inventory.indexOf(item);
             if (idx != -1) deleteInventoryItem(idx);
           },
+          onUpdate: (updated) {
+            // 🔹 Refresh local state to reflect the new image immediately
+            _loadInventory();
+            _fetchNotificationsCount();
+          },
         );
       },
       transitionBuilder: (context, anim1, anim2, child) {
@@ -1541,6 +1649,91 @@ class _HomeScreenState extends State<HomeScreen> {
               CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
             ),
             child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLogoutDialog() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Logout",
+      barrierColor: Colors.black87,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.85,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E2A33).withOpacity(0.95),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: Colors.white.withOpacity(0.1), width: 1.5),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, spreadRadius: 10)
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.logout, color: Colors.redAccent, size: 32),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "End Session?",
+                    style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Are you sure you want to log out of Smridge? Your local inventory cache will be secured.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 32),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text("CANCEL", style: TextStyle(color: Colors.white54, letterSpacing: 1.2, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 8,
+                            shadowColor: Colors.redAccent.withOpacity(0.4),
+                          ),
+                          onPressed: () async {
+                            HapticService.heavy();
+                            await SecureStorageService.clearAll();
+                            if (mounted) {
+                              Navigator.pushAndRemoveUntil(context, FadeSlidePageRoute(page: const LoginScreen()), (route) => false);
+                            }
+                          },
+                          child: const Text("LOGOUT", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ).animate().scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack).fadeIn(),
           ),
         );
       },

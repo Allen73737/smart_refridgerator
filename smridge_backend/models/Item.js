@@ -16,6 +16,7 @@ const itemSchema = new mongoose.Schema({
   expirySource: { type: String, default: 'manual' },
   reminderDate: Date, // 👈 Added for custom reminders
   notes: String,
+  litres: { type: Number, default: 0 },
   image: String, // 👈 image field
   freshnessScore: { type: Number, default: 100 },
   notifiedIntervals: [String], // 👈 Track sent alerts (e.g. "48h", "expired")

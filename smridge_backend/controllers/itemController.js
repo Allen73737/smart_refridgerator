@@ -1,6 +1,7 @@
 const Item = require("../models/Item");
 const NotificationModel = require("../models/Notification");
 const axios = require("axios");
+const cloudinary = require("../config/cloudinaryConfig");
 const { calculateFreshness } = require("../utils/freshnessUtils");
 const socketManager = require("../utils/socketManager");
 const logActivity = require("../utils/activityLogger");
@@ -14,7 +15,7 @@ exports.addItem = async (req, res) => {
     console.log("Uploaded File Status:", req.file ? `File Received: ${req.file.originalname} (${req.file.mimetype})` : "❌ No File Received");
     if (req.file) console.log("Cloudinary Path:", req.file.path);
 
-    const { name, quantity, expiryDate, category, packaged, weight, barcode, brand, expirySource, notes, imageUrl, reminderDate } = req.body;
+    const { name, quantity, expiryDate, category, packaged, weight, litres, barcode, brand, expirySource, notes, imageUrl, reminderDate } = req.body;
 
     // --- EXPIRY DATE ESTIMATOR ---
     let finalExpiryDate = expiryDate;
@@ -61,6 +62,18 @@ exports.addItem = async (req, res) => {
       } else {
         finalImageUrl = req.file.path; // Cloudinary URL
       }
+    } else if (finalImageUrl && finalImageUrl.startsWith("http") && !finalImageUrl.includes("res.cloudinary.com")) {
+      // ☁️ DOWNLOAD & UPLOAD AI IMAGE TO CLOUDINARY
+      try {
+        console.log("☁️ External AI URL detected:", finalImageUrl);
+        const uploadResponse = await cloudinary.uploader.upload(finalImageUrl, {
+          folder: "smridge_items",
+        });
+        finalImageUrl = uploadResponse.secure_url;
+        console.log("✅ AI image re-uploaded to Cloudinary:", finalImageUrl);
+      } catch (err) {
+        console.error("❌ Cloudinary re-upload failed:", err.message);
+      }
     }
 
     const item = new Item({
@@ -70,6 +83,7 @@ exports.addItem = async (req, res) => {
       packaged: packaged === 'true' || packaged === true,
       quantity: quantity ? parseInt(quantity) : 1,
       weight: weight ? parseFloat(weight) : 0,
+      litres: litres ? parseFloat(litres) : 0,
       barcode: barcode || null,
       brand: brand || null,
       expiryDate: finalExpiryDate,
@@ -153,6 +167,18 @@ exports.updateItem = async (req, res) => {
       } else {
         updateData.image = req.file.path;
       }
+    } else if (updateData.image && updateData.image.startsWith("http") && !updateData.image.includes("res.cloudinary.com")) {
+      // ☁️ DOWNLOAD & UPLOAD AI IMAGE TO CLOUDINARY during update
+      try {
+        console.log("☁️ External AI URL detected during update:", updateData.image);
+        const uploadResponse = await cloudinary.uploader.upload(updateData.image, {
+          folder: "smridge_items",
+        });
+        updateData.image = uploadResponse.secure_url;
+        console.log("✅ AI image re-uploaded to Cloudinary during update:", updateData.image);
+      } catch (err) {
+        console.error("❌ Cloudinary re-upload during update failed:", err.message);
+      }
     }
 
     let updateQuery = updateData;
@@ -192,14 +218,21 @@ exports.updateItem = async (req, res) => {
 // 🟢 Delete Item
 exports.deleteItem = async (req, res) => {
   try {
+    const item = await Item.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    const itemName = item.name;
     await Item.findByIdAndDelete(req.params.id);
 
     // 🔹 Emit Socket Event
-    socketManager.emitEvent("inventory_update", { action: "delete", id: req.params.id });
+    socketManager.emitEvent("inventory_update", { action: "delete", id: req.params.id, name: itemName });
 
-    await logActivity(req.user.id, 'DELETE_ITEM', 'user', `Deleted item ID: ${req.params.id}`);
+    // ✅ LOG WITH NAME INSTEAD OF ID
+    await logActivity(req.user.id, 'DELETE_ITEM', 'user', `Deleted item: ${itemName}`);
 
-    res.json({ message: "Item deleted successfully" });
+    res.json({ message: `Item '${itemName}' deleted successfully` });
 
   } catch (error) {
     res.status(500).json({ message: error.message });

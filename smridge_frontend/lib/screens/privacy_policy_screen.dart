@@ -116,7 +116,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                         const SizedBox(height: 40),
                         Center(
                           child: Text(
-                            "For full legal terms, visit legal.smridge.io",
+                            "For full legal terms, visit smridge.vercel.app",
                             style: TextStyle(color: isLight ? Colors.grey : Colors.white38, fontSize: 12),
                           ),
                         ),

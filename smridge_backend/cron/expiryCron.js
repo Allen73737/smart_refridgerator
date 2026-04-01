@@ -6,7 +6,8 @@ const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
 
 cron.schedule("* * * * *", async () => {
-  console.log("Running periodic expiry check...");
+  try {
+    console.log("Running periodic expiry check...");
 
   const now = new Date();
   const items = await Item.find();
@@ -98,5 +99,8 @@ cron.schedule("* * * * *", async () => {
         }
       }
     }
+    }
+  } catch (error) {
+    console.error("❌ Expiry Cron Error:", error);
   }
 });

@@ -18,6 +18,9 @@ import 'notification_history_screen.dart';
 import '../services/secure_storage_service.dart';
 import '../services/haptic_service.dart';
 import 'login_screen.dart';
+import 'pin_entry_screen.dart';
+import 'activity_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/app_walkthrough.dart'; 
 
 class SettingsScreen extends StatefulWidget {
@@ -43,13 +46,16 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isPinEnabled = false;
   bool _hapticsEnabled = HapticService.isEnabled;
+  bool _vibrationAlertsEnabled = true; // 📳 New: Vibration for notifications
   
   final GlobalKey _wtAccountKey = GlobalKey();
   final GlobalKey _wtActivityKey = GlobalKey();
   final GlobalKey _wtSecurityKey = GlobalKey();
   final GlobalKey _wtThemeKey = GlobalKey();
   final GlobalKey _wtHapticsKey = GlobalKey();
-  final GlobalKey _wtAdvancedKey = GlobalKey();
+  final GlobalKey _wtThresholdsKey = GlobalKey(); // 🔹 Renamed from _wtAdvancedKey
+  final GlobalKey _wtCustomizationKey = GlobalKey(); // 🔹 New key for Fridge Customization
+  final GlobalKey _wtNotificationHistoryKey = GlobalKey(); // 🔹 New key for Notification History
   final GlobalKey _wtPrivacyKey = GlobalKey();
   final GlobalKey _wtHelpKey = GlobalKey();
   final GlobalKey _wtAboutKey = GlobalKey();
@@ -63,6 +69,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSecuritySettings();
     _checkFirstVisit();
+    _loadVibrationSettings(); // 📳 Initialize vibration preference
+  }
+
+  Future<void> _loadVibrationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _vibrationAlertsEnabled = prefs.getBool('vibration_alerts_enabled') ?? true;
+      });
+    }
   }
 
   Future<void> _checkFirstVisit() async {
@@ -101,9 +117,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           description: "Enable or disable precision vibrations for physical interaction confirmation.",
         ),
         WalkthroughStep(
-          targetKey: _wtAdvancedKey,
-          title: "Hardware Sync",
-          description: "Calibrate ESP32 weight sensors and configure zero-latency backend endpoints.",
+          targetKey: _wtCustomizationKey,
+          title: "Fridge Customization",
+          description: "Personalize your Smridge's 3D colors and unique audio signatures (hum, door, alerts).",
+        ),
+        WalkthroughStep(
+          targetKey: _wtNotificationHistoryKey,
+          title: "Notification History",
+          description: "Review all past alerts, expiry warnings, and system logs in one place.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtThresholdsKey,
+          title: "Hardware Thresholds",
+          description: "Calibrate ESP32 thresholds for temperature, humidity, and freshness alerts.",
         ),
         WalkthroughStep(
           targetKey: _wtPrivacyKey,
@@ -140,49 +166,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showPinSetupDialog() {
-    TextEditingController pinController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2A33),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Set App PIN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Enter a 4-digit PIN to secure your app access.", style: TextStyle(color: Colors.white70)),
-            const SizedBox(height: 20),
-            TextField(
-              controller: pinController,
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 4,
-              style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 10),
-              textAlign: TextAlign.center,
-              decoration: InputDecoration(
-                counterStyle: const TextStyle(color: Colors.white38),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.tealAccent.withOpacity(0.5))),
-                focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.tealAccent)),
-              ),
-            ),
-          ],
+  void _showPinSetupDialog({bool isVerifying = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PinEntryScreen(
+          isConfirming: !isVerifying, // isConfirming usually means "Set New PIN"
+          onSuccess: () {
+            if (isVerifying) {
+              // Successfully verified old PIN, now set new one
+              Navigator.pop(context);
+              _showPinSetupDialog(isVerifying: false);
+            } else {
+              // Successfully set new PIN
+              setState(() => _isPinEnabled = true);
+              Navigator.pop(context);
+            }
+          },
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
-            onPressed: () async {
-              if (pinController.text.length == 4) {
-                await SecureStorageService.savePin(pinController.text);
-                setState(() => _isPinEnabled = true);
-                if (mounted) Navigator.pop(context);
-                HapticService.heavy();
-              }
-            },
-            child: const Text("Save"),
-          ),
-        ],
       ),
     );
   }
@@ -266,9 +267,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           key: _wtActivityKey,
                           onTap: () {
                             if (widget.onActivityTap != null) widget.onActivityTap!();
-                            // If no general activity tap passed, we can go to analytics or history
-                            else Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationHistoryScreen()));
+                            else Navigator.push(context, MaterialPageRoute(builder: (_) => ActivityScreen(onBack: () => Navigator.pop(context))));
                           },
+                        ),
+                        _buildSettingsTile(
+                          Icons.history, 
+                          "Notification History", 
+                          isLight,
+                          key: _wtNotificationHistoryKey,
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationHistoryScreen())),
                         ),
                         
                         const SizedBox(height: 30),
@@ -281,15 +288,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           "App Security PIN", 
                           isLight,
                           key: _wtSecurityKey, 
-                          onTap: _showPinSetupDialog,
+                          onTap: () => _showPinSetupDialog(isVerifying: _isPinEnabled),
                           trailing: Switch(
                             value: _isPinEnabled, 
                             activeColor: Colors.tealAccent,
                             onChanged: (val) {
-                               if (val) _showPinSetupDialog();
+                               if (val) _showPinSetupDialog(isVerifying: false);
                                else {
-                                 SecureStorageService.clearPin();
-                                 setState(() => _isPinEnabled = false);
+                                 // To disable PIN, we should also verify!
+                                 Navigator.push(context, MaterialPageRoute(builder: (_) => PinEntryScreen(
+                                   isConfirming: false,
+                                   onSuccess: () {
+                                     SecureStorageService.clearPin();
+                                     setState(() => _isPinEnabled = false);
+                                     Navigator.pop(context);
+                                   },
+                                 )));
                                }
                             }
                           ),
@@ -318,6 +332,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onChanged: (val) {
                               setState(() => _hapticsEnabled = val);
                               HapticService.setEnabled(val);
+                              if (val) HapticService.medium();
+                            },
+                          ),
+                        ),
+                        _buildSettingsTile(
+                          Icons.notifications_active_outlined, 
+                          "Vibration Alerts", 
+                          isLight,
+                          trailing: Switch(
+                            value: _vibrationAlertsEnabled,
+                            activeColor: Colors.tealAccent,
+                            onChanged: (val) async {
+                              setState(() => _vibrationAlertsEnabled = val);
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setBool('vibration_alerts_enabled', val);
                               if (val) HapticService.medium();
                             },
                           ),
@@ -399,10 +428,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Text("SYSTEM & SUPPORT", style: TextStyle(color: isLight ? Colors.black54 : Colors.white54, fontSize: 13, letterSpacing: 1, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 15),
                         _buildSettingsTile(
-                          Icons.settings_input_component, 
-                          "Advanced Hub Config", 
+                          Icons.color_lens_outlined, 
+                          "Fridge Customization", 
                           isLight,
-                          key: _wtAdvancedKey, 
+                          key: _wtCustomizationKey, 
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdvancedSettingsScreen())),
+                        ),
+                        _buildSettingsTile(
+                          Icons.settings_input_component, 
+                          "Thresholds & Alerts", 
+                          isLight,
+                          key: _wtThresholdsKey, 
                           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeviceConfigScreen())),
                         ),
                         _buildSettingsTile(
@@ -466,26 +502,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLogoutDialog() {
-    showDialog(
+    showGeneralDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2A33),
-        title: const Text("Logout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: const Text("Are you sure you want to logout from your Smridge session?", style: TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () async {
-              await SecureStorageService.clearAll();
-              if (mounted) {
-                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
-              }
-            },
-            child: const Text("Logout"),
-          ),
-        ],
-      ),
+      barrierDismissible: true,
+      barrierLabel: "Logout",
+      barrierColor: Colors.black.withOpacity(0.8),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.85,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: Colors.white12),
+                boxShadow: [
+                   BoxShadow(color: Colors.tealAccent.withOpacity(0.05), blurRadius: 40, spreadRadius: 5)
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(30),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.logout, color: Colors.redAccent, size: 32),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        "End Session?",
+                        style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Are you sure you want to log out of Smridge? Your local inventory cache will be secured.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(height: 32),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("CANCEL", style: TextStyle(color: Colors.white54, letterSpacing: 1.2)),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              onPressed: () async {
+                                HapticService.heavy();
+                                await SecureStorageService.clearAll();
+                                if (mounted) {
+                                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+                                }
+                              },
+                              child: const Text("LOGOUT", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ).animate().scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack).fadeIn(),
+        );
+      },
     );
   }
 

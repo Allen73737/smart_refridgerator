@@ -17,18 +17,51 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-// 🟢 Update Profile
+// 🟢 Update Profile (Personalization Sync)
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, location, timezone, appPin } = req.body;
+    const user = await User.findById(req.user.id);
 
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      { name, email },
-      { new: true }
-    ).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-    res.json(updatedUser);
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (location !== undefined) user.location = location;
+    if (timezone !== undefined) user.timezone = timezone;
+    
+    // Sync App PIN to cloud if provided
+    if (appPin !== undefined) {
+      user.appPin = appPin; 
+    }
+
+    await user.save();
+    
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    delete userResponse.appPin; // Never return hashed PIN
+
+    res.json(userResponse);
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// 🟢 Verify App PIN
+exports.verifyPin = async (req, res) => {
+  try {
+    const { pin } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user || !user.appPin) {
+      return res.status(400).json({ message: "No PIN configured for this account" });
+    }
+
+    const isMatch = await user.matchPin(pin);
+    res.json({ success: isMatch });
 
   } catch (error) {
     res.status(500).json({ message: error.message });

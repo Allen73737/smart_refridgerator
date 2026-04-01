@@ -52,15 +52,17 @@ class InventoryItem {
       barcode: json['barcode'],
       brand: json['brand'],
       expiryDate: json['expiryDate'] != null
-          ? DateTime.parse(json['expiryDate'])
+          ? DateTime.parse(json['expiryDate']).toLocal()
           : DateTime.now().add(const Duration(days: 7)),
       expirySource: json['expirySource'],
-      reminderDate: json['reminderDate'] != null ? DateTime.parse(json['reminderDate']) : null,
+      reminderDate: json['reminderDate'] != null 
+          ? DateTime.parse(json['reminderDate']).toLocal() 
+          : null,
       notes: json['notes'],
       // Backend uses 'createdAt' (Mongoose auto-field), not 'dateAdded'
       dateAdded: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
-          : (json['dateAdded'] != null ? DateTime.parse(json['dateAdded']) : DateTime.now()),
+          ? DateTime.parse(json['createdAt']).toLocal()
+          : (json['dateAdded'] != null ? DateTime.parse(json['dateAdded']).toLocal() : DateTime.now()),
       imagePath: json['imagePath'],
       // Backend stores image URL in 'image' field, fallback to 'imageUrl'
       imageUrl: json['imageUrl'] ?? json['image'],
@@ -83,7 +85,7 @@ class InventoryItem {
       'notes': notes,
       'dateAdded': dateAdded.toIso8601String(),
       'imagePath': imagePath,
-      'imageUrl': imageUrl,
+      'image': imageUrl, // 💎 Aligned with Backend 'image' field
     };
   }
 

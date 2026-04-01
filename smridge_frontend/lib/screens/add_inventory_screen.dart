@@ -166,11 +166,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           description: "Categories help Smridge apply specific freshness algorithms. For example, dairy items have stricter temp-stability requirements.",
         ),
         WalkthroughStep(
-          targetKey: _wtWeightKey,
-          title: "Load Cell Sync",
-          description: "Place your item on the physical fridge scale. Smridge will automatically sync the weight here in real-time.",
-        ),
-        WalkthroughStep(
           targetKey: _wtExpiryKey,
           title: "Dynamic Expiry",
           description: "Adjust the expiry date manually or trust our AI-suggested estimates. You'll get a notification 48 hours before this date.",
@@ -299,9 +294,6 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     final weightKg = rawGrams / 1000.0;
     setState(() {
       currentWeight = weightKg;
-      if (rawGrams > 0) {
-        weightController.text = weightKg.toStringAsFixed(3);
-      }
     });
   }
 
@@ -585,33 +577,27 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
                         const SizedBox(height: 15),
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildGlassInput(
-                                label: "Quantity", 
-                                controller: quantityController, 
-                                type: TextInputType.number,
-                                icon: Icons.numbers,
-                                isLight: isLight,
-                              ).animate().slideX(begin: -0.1).fade(delay: 100.ms),
-                            ),
-                            const SizedBox(width: 8), 
-                            Expanded(
-                              child: _buildGlassInput(
-                                key: _wtWeightKey, // 🎯
-                                label: "Weight (kg)", 
-                                controller: weightController, 
-                                type: const TextInputType.numberWithOptions(decimal: true),
-                                icon: Icons.monitor_weight_outlined,
-                                isLight: isLight,
-                                onChanged: (val) => _weightSimulationTimer?.cancel(),
-                              ).animate().slideX(begin: 0.1).fade(delay: 100.ms),
-                            ),
-                          ],
-                        ),
+                        _buildGlassInput(
+                          label: "Quantity", 
+                          controller: quantityController, 
+                          type: TextInputType.number,
+                          icon: Icons.numbers,
+                          isLight: isLight,
+                        ).animate().slideX(begin: -0.1).fade(delay: 100.ms),
 
                         const SizedBox(height: 15),
+
+                        if (isLiquid)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 15),
+                            child: _buildGlassInput(
+                              label: "Capacity (Litres)", 
+                              controller: litresController, 
+                              type: const TextInputType.numberWithOptions(decimal: true),
+                              icon: Icons.opacity,
+                              isLight: isLight,
+                            ).animate().slideX(begin: -0.1).fade(delay: 150.ms),
+                          ),
 
                         Container(
                           key: _wtExpiryKey, // 🎯

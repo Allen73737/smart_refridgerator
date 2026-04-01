@@ -7,7 +7,10 @@ const socketManager = require("./utils/socketManager");
 const sensorService = require("./utils/sensorService");
 const { getSensorScore } = require("./utils/freshnessUtils");
 
+const compression = require("compression");
 const app = express();
+
+app.use(compression());
 
 app.use(cors({
   origin: "*",

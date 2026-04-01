@@ -18,6 +18,7 @@ class ProductDetailsOverlay extends StatefulWidget {
   final VoidCallback onClose;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final Function(InventoryItem)? onUpdate; // 🔹 Added update callback
 
   const ProductDetailsOverlay({
     super.key, 
@@ -25,6 +26,7 @@ class ProductDetailsOverlay extends StatefulWidget {
     required this.onClose,
     required this.onEdit,
     required this.onDelete,
+    this.onUpdate,
   });
 
   @override
@@ -146,14 +148,16 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
             if (success && mounted) {
               try {
                 // 🗑️ Clear existing notification for this item first
-                await NotificationService().cancelNotification(_item.id.hashCode + 20000); 
-                await NotificationService().cancelNotification(_item.id.hashCode + 30000);
-                await NotificationService().cancelNotification(_item.id.hashCode + 50000);
+                final int safeId = _item.id.hashCode.abs() % 100000;
+                await NotificationService().cancelNotification(safeId + 20000); 
+                await NotificationService().cancelNotification((safeId + 30000) % 100000000);
+                await NotificationService().cancelNotification(safeId + 50000);
 
                 await NotificationService().scheduleLocalReminder(
-                  _item.id.hashCode,
+                  safeId,
                   _item.name,
                   fullDateTime,
+                  imagePath: _item.imagePath,
                 );
               } catch (e) { print("Notif Error: $e"); }
               
@@ -239,6 +243,7 @@ class _ProductDetailsOverlayState extends State<ProductDetailsOverlay> {
                         final success = await ApiService.updateFood(newItem, token);
                         if (success && mounted) {
                           setState(() => _item = newItem);
+                          if (widget.onUpdate != null) widget.onUpdate!(newItem); // 🔹 Notify parent
                           Navigator.pop(context);
                           SnackbarUtils.showSuccess(context, "Product profile upgraded! ✨");
                         }
