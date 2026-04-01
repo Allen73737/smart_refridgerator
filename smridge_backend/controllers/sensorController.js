@@ -6,7 +6,7 @@ const socketManager = require("../utils/socketManager");
 const logActivity = require("../utils/activityLogger");
 const Threshold = require("../models/Threshold");
 const FridgeStatus = require("../models/FridgeStatus");
-const Device = require("../models/Device"); // 🔑 Added for identity lookup
+const Device = require("../models/Device");
 
 const { getSensorScore } = require("../utils/freshnessUtils");
 const sensorService = require("../utils/sensorService");
@@ -26,11 +26,11 @@ let doorOpenAlertSent = false;
 // Receive Data from ESP32
 exports.receiveSensorData = async (req, res) => {
   try {
-    // IMPORTANT FIX: use let, because values are modified later
-    let { temperature, humidity, gasLevel, weight, doorStatus } = req.body;
+    let { deviceId, temperature, humidity, gasLevel, weight, doorStatus } = req.body;
 
     // Basic validation
     if (
+      !deviceId ||
       temperature === undefined ||
       humidity === undefined ||
       gasLevel === undefined ||
@@ -40,37 +40,50 @@ exports.receiveSensorData = async (req, res) => {
       return res.status(400).json({ message: "Missing sensor fields" });
     }
 
-    // Convert to proper numeric types
+    // Normalize values
+    deviceId = String(deviceId).trim().toUpperCase();
     temperature = Number(temperature);
     humidity = Number(humidity);
     gasLevel = Number(gasLevel);
     weight = Number(weight);
-    
-    // 🔍 IDENTITY LOOKUP: Find the owner of this device
-    const { deviceId } = req.body;
-    if (!deviceId) {
-      return res.status(400).json({ message: "Device identity (deviceId) is required" });
+    doorStatus = String(doorStatus).toLowerCase().trim();
+
+    if (
+      Number.isNaN(temperature) ||
+      Number.isNaN(humidity) ||
+      Number.isNaN(gasLevel) ||
+      Number.isNaN(weight)
+    ) {
+      return res.status(400).json({ message: "Invalid numeric sensor fields" });
     }
 
-    const device = await Device.findOne({ deviceId }).populate('userId');
+    if (doorStatus !== "open" && doorStatus !== "closed") {
+      return res.status(400).json({ message: "Invalid doorStatus value" });
+    }
+
+    // Find the owner of this device
+    const device = await Device.findOne({ deviceId }).populate("userId");
+
     if (!device || !device.userId) {
       return res.status(404).json({ message: "Device not registered or linked to a user" });
     }
 
-    const primaryUser = device.userId; // 🎯 Securely found the actual owner
+    const primaryUser = device.userId;
     const syncKey = `fridge_${primaryUser._id}`;
     const now = Date.now();
 
     const adminThresholds = await Threshold.findOne().sort({ createdAt: -1 }).lean();
 
-    if (primaryUser) {
-      const userSeed = parseInt(primaryUser._id.toString().substring(0, 8), 16);
-      const userTempOffset = (userSeed % 5) - 2.5;
-      const userHumOffset = (userSeed % 10) - 5;
+    // Optional per-user variation logic from your existing code
+    const userSeed = parseInt(primaryUser._id.toString().substring(0, 8), 16);
+    const userTempOffset = (userSeed % 5) - 2.5;
+    const userHumOffset = (userSeed % 10) - 5;
 
-      temperature += userTempOffset;
-      humidity += userHumOffset;
-    }
+    temperature += userTempOffset;
+    humidity += userHumOffset;
+
+    // Use processed weight value
+    const finalWeight = weight;
 
     // Save latest known state
     const previousState = sensorService.updateLastKnown({
@@ -82,7 +95,7 @@ exports.receiveSensorData = async (req, res) => {
     });
 
     // Log door activity if state changed
-    if (previousState && previousState.doorStatus !== doorStatus && primaryUser) {
+    if (previousState && previousState.doorStatus !== doorStatus) {
       const action = doorStatus === "open" ? "DOOR_OPEN" : "DOOR_CLOSE";
       await logActivity(
         primaryUser._id,
@@ -107,7 +120,7 @@ exports.receiveSensorData = async (req, res) => {
     if (calculatedFreshness < 60) status = "Caution";
     if (calculatedFreshness < 30) status = "Spoiled";
 
-    // Emit real-time socket event (TARGETED to owner only)
+    // Emit real-time socket event to owner only
     socketManager.emitToUser(primaryUser._id, "sensor_data", {
       temperature,
       humidity,
@@ -127,15 +140,19 @@ exports.receiveSensorData = async (req, res) => {
     });
 
     // Throttle DB writes
-    if (lastSyncCache.has(syncKey) && (now - lastSyncCache.get(syncKey)) < DB_SYNC_THROTTLE_MS) {
+    if (
+      lastSyncCache.has(syncKey) &&
+      now - lastSyncCache.get(syncKey) < DB_SYNC_THROTTLE_MS
+    ) {
       return;
     }
+
     lastSyncCache.set(syncKey, now);
 
     // Energy simulation
-    const energyConsumption = (temperature > 8 ? 0.5 : 0.2) + (Math.random() * 0.1);
+    const energyConsumption = (temperature > 8 ? 0.5 : 0.2) + Math.random() * 0.1;
 
-    // Save sensor history (SECURE with foreign keys)
+    // Save sensor history
     SensorData.create({
       temperature,
       humidity,
@@ -147,94 +164,104 @@ exports.receiveSensorData = async (req, res) => {
       deviceId: deviceId
     }).catch(err => console.error("History log error:", err));
 
-    if (users.length > 0 && primaryUser) {
-      const fridgeScoreDetails = getSensorScore({
-        temperature,
-        humidity,
-        gasLevel,
-        weight: finalWeight,
-        doorStatus
-      });
+    // Update fridge status
+    const freshnessPercentage = Math.round((sensorDetails.total / 60) * 100);
 
-      const freshnessPercentage = Math.round((fridgeScoreDetails.total / 60) * 100);
-
-      FridgeStatus.findOneAndUpdate(
-        { userId: primaryUser._id },
-        {
-          $set: {
-            freshnessPercentage,
-            gasLevel,
-            temperature,
-            humidity,
-            doorStatus,
-            lastUpdated: Date.now()
-          }
-        },
-        { upsert: true, new: true }
-      ).catch(err => console.error("FridgeStatus sync error:", err));
-
-      const T_LIMIT = adminThresholds?.temperatureLimitMax ?? TEMP_THRESHOLD;
-      const G_LIMIT = adminThresholds?.gasLimitMax ?? GAS_THRESHOLD;
-
-      if (temperature > T_LIMIT) {
-        createAndSendAlert(
-          primaryUser,
-          "temperature",
-          "High Temperature Alert",
-          `Fridge temperature is too high: ${temperature}°C`,
-          "#FF0000"
-        );
-      }
-
-      if (gasLevel > G_LIMIT) {
-        createAndSendAlert(
-          primaryUser,
-          "spoilage",
-          "Spoilage Detected",
-          `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`,
-          "#FF5722"
-        );
-      }
-
-      if (humidity > 80) {
-        createAndSendAlert(
-          primaryUser,
-          "humidity",
-          "High Humidity Alert",
-          `Humidity is too high: ${humidity}%.`,
-          "#2196F3"
-        );
-      }
-
-      // Door checks
-      if (doorStatus === "open") {
-        if (!doorOpenStartTime) {
-          doorOpenStartTime = Date.now();
-          doorOpenAlertSent = false;
-        } else {
-          const durationMins = (Date.now() - doorOpenStartTime) / (1000 * 60);
-          if (durationMins >= 2 && !doorOpenAlertSent) {
-            createAndSendAlert(
-              primaryUser,
-              "system",
-              "Door Left Open",
-              "The fridge door has been open for over 2 minutes! Energy loss occurring.",
-              "#FF0000"
-            );
-            doorOpenAlertSent = true;
-          }
+    FridgeStatus.findOneAndUpdate(
+      { userId: primaryUser._id },
+      {
+        $set: {
+          freshnessPercentage,
+          gasLevel,
+          temperature,
+          humidity,
+          doorStatus,
+          weight: finalWeight,
+          lastUpdated: Date.now()
         }
-      } else {
-        doorOpenStartTime = null;
-        doorOpenAlertSent = false;
-      }
+      },
+      { upsert: true, new: true }
+    ).catch(err => console.error("FridgeStatus sync error:", err));
+
+    const T_LIMIT = adminThresholds?.temperatureLimitMax ?? TEMP_THRESHOLD;
+    const G_LIMIT = adminThresholds?.gasLimitMax ?? GAS_THRESHOLD;
+
+    if (temperature > T_LIMIT) {
+      createAndSendAlert(
+        primaryUser,
+        "temperature",
+        "High Temperature Alert",
+        `Fridge temperature is too high: ${temperature}°C`,
+        "#FF0000"
+      );
     }
 
+    if (gasLevel > G_LIMIT) {
+      createAndSendAlert(
+        primaryUser,
+        "spoilage",
+        "Spoilage Detected",
+        `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`,
+        "#FF5722"
+      );
+    }
+
+    if (humidity > 80) {
+      createAndSendAlert(
+        primaryUser,
+        "humidity",
+        "High Humidity Alert",
+        `Humidity is too high: ${humidity}%.`,
+        "#2196F3"
+      );
+    }
+
+    // Door checks
+    if (doorStatus === "open") {
+      if (!doorOpenStartTime) {
+        doorOpenStartTime = Date.now();
+        doorOpenAlertSent = false;
+      } else {
+        const durationMins = (Date.now() - doorOpenStartTime) / (1000 * 60);
+        if (durationMins >= 2 && !doorOpenAlertSent) {
+          createAndSendAlert(
+            primaryUser,
+            "system",
+            "Door Left Open",
+            "The fridge door has been open for over 2 minutes! Energy loss occurring.",
+            "#FF0000"
+          );
+          doorOpenAlertSent = true;
+        }
+      }
+    } else {
+      doorOpenStartTime = null;
+      doorOpenAlertSent = false;
+    }
   } catch (error) {
     console.error("ESP32 Sensor Error:", error);
     if (!res.headersSent) {
       res.status(500).json({ message: error.message });
     }
+  }
+};
+
+// 🟢 NEW: Get Latest Sensor Data for specific Device
+exports.getLatestSensorData = async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const latest = await SensorData.findOne({ deviceId: deviceId.trim().toUpperCase() })
+      .sort({ timestamp: -1 })
+      .lean();
+
+    if (!latest) {
+      return res.status(404).json({ message: "No sensor data found for this device" });
+    }
+
+    res.status(200).json(latest);
+  } catch (error) {
+    console.error("Get Latest Sensor Data Error:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
