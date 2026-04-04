@@ -7,6 +7,7 @@ const auth = require("../middleware/authMiddleware");
 router.post("/register", deviceController.registerDevice);
 
 // 🟢 Protected endpoints for App
+router.post("/add", auth, deviceController.addDevice);
 router.get("/", auth, deviceController.getUserDevices);
 router.post("/status", deviceController.updateStatus);
 

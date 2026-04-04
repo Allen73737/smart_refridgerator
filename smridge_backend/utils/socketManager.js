@@ -3,6 +3,8 @@ const { Server } = require("socket.io");
 let io;
 const { getSensorScore } = require("./freshnessUtils");
 
+const User = require("../models/User");
+
 // Store active intervals and per-user data state
 const userIntervals = new Map();
 const userRealData = new Map(); // 🔑 userId -> { data, timestamp }
@@ -34,7 +36,7 @@ module.exports = {
       const startSimulation = () => {
         if (userIntervals.has(socket.id)) return;
 
-        const interval = setInterval(() => {
+        const interval = setInterval(async () => {
           const now = Date.now();
           const userId = socket.userId;
           const realSession = userId ? userRealData.get(userId) : null;
@@ -42,29 +44,42 @@ module.exports = {
 
           if (isRealRecent && realSession.data) {
             socket.emit("sensor_data", { ...realSession.data, isReal: true });
-          } else {
-            // Generate unique simulated data per user
-            const seed = socket.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            const driftT = (Math.sin(now / 5000 + seed) * 0.5);
-            const driftH = (Math.cos(now / 7000 + seed) * 2.0);
+          } else if (userId) {
+            // 🛡️ Check if simulation is enabled for this user
+            try {
+              const user = await User.findById(userId).select('isSimulationEnabled').lean();
+              if (user && user.isSimulationEnabled) {
+                // Generate unique simulated data per user
+                const seed = socket.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                const driftT = (Math.sin(now / 5000 + seed) * 0.5);
+                const driftH = (Math.cos(now / 7000 + seed) * 2.0);
 
-            const simulatedData = {
-              temperature: (4.0 + driftT).toFixed(1),
-              humidity: (60 + driftH).toFixed(1),
-              gasLevel: Math.round(200 + Math.sin(now / 10000 + seed) * 50),
-              doorStatus: "closed",
-              isReal: false,
-              timestamp: now
-            };
+                const simulatedData = {
+                  temperature: (4.0 + driftT).toFixed(1),
+                  humidity: (60 + driftH).toFixed(1),
+                  gasLevel: Math.round(200 + Math.sin(now / 10000 + seed) * 50),
+                  doorStatus: "closed",
+                  isReal: false,
+                  timestamp: now
+                };
 
-            const score = getSensorScore(simulatedData);
-            const freshness = Math.round((score.total / 60) * 100);
+                const score = getSensorScore(simulatedData);
+                const freshness = Math.round((score.total / 60) * 100);
 
-            socket.emit("sensor_data", {
-              ...simulatedData,
-              calculatedFreshness: freshness,
-              status: freshness > 60 ? "Fresh" : (freshness > 30 ? "Caution" : "Spoiled")
-            });
+                socket.emit("sensor_data", {
+                  ...simulatedData,
+                  calculatedFreshness: freshness,
+                  status: freshness > 60 ? "Fresh" : (freshness > 30 ? "Caution" : "Spoiled")
+                });
+              } else {
+                // If simulation is OFF and no real data, we can optionally emit "Disconnected/Offline" state 
+                // but the user requirement says "no simullation of seosr data... display the real sensor data only"
+                // So if it's off and no real data, we just don't emit or emit last known with isReal: true if we want to show stale real data
+                // For now, we skip emission to stay true to "no simulation".
+              }
+            } catch (err) {
+              console.error("Simulation Check Error:", err);
+            }
           }
         }, 1000);
 

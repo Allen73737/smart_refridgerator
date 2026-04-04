@@ -6,6 +6,7 @@ class AudioService {
   static final AudioPlayer _fridgeHumPlayer = AudioPlayer();
   static final AudioPlayer _successPlayer = AudioPlayer();
   static final AudioPlayer _notificationPlayer = AudioPlayer();
+  static final AudioPlayer _urgentAlertPlayer = AudioPlayer();
 
   static Future<void> playLogoReveal() async {
     await _logoRevealPlayer.setReleaseMode(ReleaseMode.release);
@@ -84,11 +85,25 @@ class AudioService {
     }
   }
 
+  // 🚨 URGENT ALERT: 10 Seconds of continuous sound
+  static Future<void> playUrgentAlert() async {
+    await _urgentAlertPlayer.setReleaseMode(ReleaseMode.loop);
+    // Using a distinct sound, fallback to notification if necessary
+    try {
+       await _urgentAlertPlayer.play(AssetSource('audio/notification.ogg'), volume: 1.0);
+    } catch (_) {}
+  }
+
+  static Future<void> stopUrgentAlert() async {
+    await _urgentAlertPlayer.stop();
+  }
+
   static void dispose() {
     _logoRevealPlayer.dispose();
     _doorOpenPlayer.dispose();
     _fridgeHumPlayer.dispose();
     _successPlayer.dispose();
     _notificationPlayer.dispose();
+    _urgentAlertPlayer.dispose();
   }
 }

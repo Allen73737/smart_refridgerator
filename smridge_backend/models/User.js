@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema({
   timezone:     { type: String, default: "UTC" },
   appPin:       { type: String, default: null }, // Hashed PIN
   deviceId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Device', default: null },
+  isSimulationEnabled: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // Auto-hash password/PIN before saving (SINGLE source of truth)

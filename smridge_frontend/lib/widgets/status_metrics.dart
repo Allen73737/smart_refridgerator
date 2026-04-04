@@ -3,10 +3,14 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../config/app_settings.dart';
+import 'package:fl_chart/fl_chart.dart'; // 🚀 Added
 import '../services/socket_service.dart';
 import '../screens/analytics_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/sensor_provider.dart'; // 🚀 Added
+import '../screens/inventory_list_screen.dart'; // Extra sync for UI
+import '../models/inventory_item.dart'; // Extra sync
 
 class StatusMetrics extends StatefulWidget {
   const StatusMetrics({super.key});
@@ -22,12 +26,7 @@ class _StatusMetricsState
 
   late AnimationController pulseController;
 
-  double temperature = 8;
-  double humidity = 60;
-  double freshness = 85;
-  bool isDoorOpen = false;
   bool _isHovering = false;
-  bool isRealData = false;
 
   @override
   void initState() {
@@ -38,21 +37,8 @@ class _StatusMetricsState
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
 
-    _initSocketListeners();
   }
 
-  void _initSocketListeners() {
-    SocketService.on('sensor_data', (data) {
-      if (!mounted) return;
-      setState(() {
-        temperature = double.tryParse(data['temperature']?.toString() ?? '8.0') ?? 8.0;
-        humidity    = double.tryParse(data['humidity']?.toString() ?? '60.0') ?? 60.0;
-        freshness   = double.tryParse(data['calculatedFreshness']?.toString() ?? '85.0') ?? 85.0;
-        isDoorOpen  = data['doorStatus'] == 'open';
-        isRealData  = data['isReal'] ?? false;
-      });
-    });
-  }
 
   @override
   void dispose() {
@@ -60,17 +46,9 @@ class _StatusMetricsState
     super.dispose();
   }
 
-  bool isTempDanger() =>
-      temperature >
-      AppSettings.temperatureThreshold;
-
-  bool isHumidityDanger() =>
-      humidity >
-      AppSettings.humidityThreshold;
-
-  bool isFreshDanger() =>
-      freshness <
-      AppSettings.freshnessThreshold;
+  bool isTempDanger(double t) => t > AppSettings.temperatureThreshold;
+  bool isHumidityDanger(double h) => h > AppSettings.humidityThreshold;
+  bool isFreshDanger(double f) => f < AppSettings.freshnessThreshold;
 
   @override
   Widget build(BuildContext context) {
@@ -78,10 +56,16 @@ class _StatusMetricsState
     final themeType = themeProvider.currentTheme;
     final isLight = themeType == ThemeType.light;
     
+    final sensor = context.watch<SensorProvider>();
+    final temperature = sensor.temperature;
+    final humidity = sensor.humidity;
+    final freshness = sensor.freshnessScore;
+    final isDoorOpen = sensor.doorStatus == "OPEN";
+
     return AnimatedBuilder(
       animation: pulseController,
       builder: (_, __) {
-        bool danger = isTempDanger() || isHumidityDanger() || isFreshDanger();
+        bool danger = isTempDanger(temperature) || isHumidityDanger(humidity) || isFreshDanger(freshness);
 
         return MouseRegion(
           onEnter: (_) => setState(() => _isHovering = true),
@@ -154,6 +138,11 @@ class _StatusMetricsState
                                       letterSpacing: 2,
                                     ),
                                   ),
+                                  if (!sensor.isRealData)
+                                    Text(
+                                      "SIMULATION MODE",
+                                      style: TextStyle(color: Colors.orangeAccent.withOpacity(0.7), fontSize: 8, fontWeight: FontWeight.bold),
+                                    ),
                                 ],
                               ),
                             ),
@@ -165,7 +154,7 @@ class _StatusMetricsState
                         buildMetric(
                             "Internal Temp",
                             "${temperature.toStringAsFixed(1)}°C",
-                            isTempDanger() 
+                            isTempDanger(temperature) 
                               ? Colors.redAccent 
                               : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.thermostat_rounded,
@@ -173,7 +162,7 @@ class _StatusMetricsState
                         buildMetric(
                             "Air Humidity",
                             "${humidity.toStringAsFixed(0)}%",
-                            isHumidityDanger() 
+                            isHumidityDanger(humidity) 
                               ? Colors.redAccent 
                               : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.water_drop_rounded,
@@ -191,6 +180,64 @@ class _StatusMetricsState
                             isDoorOpen ? Colors.orangeAccent : (isLight ? const Color(0xFF007A7A) : Colors.tealAccent),
                             icon: Icons.door_front_door_outlined,
                             isLight: isLight),
+                        
+                        // 🌊 MINI ANALYTICS SPARKLINE
+                        if (sensor.tempHistory.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      "TREND (24H)", 
+                                      style: GoogleFonts.orbitron(
+                                        color: isLight ? Colors.black38 : Colors.white38, 
+                                        fontSize: 8, 
+                                        letterSpacing: 1
+                                      )
+                                    ),
+                                    Text(
+                                      sensor.tempHistory.length > 1 && (sensor.tempHistory.last - sensor.tempHistory[sensor.tempHistory.length - 2]).abs() < 0.2
+                                        ? "STABLE"
+                                        : "FLUCTUATING",
+                                      style: GoogleFonts.orbitron(
+                                        color: Colors.tealAccent.withOpacity(0.5), 
+                                        fontSize: 8
+                                      )
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  height: 30,
+                                  child: LineChart(
+                                    LineChartData(
+                                      gridData: const FlGridData(show: false),
+                                      titlesData: const FlTitlesData(show: false),
+                                      borderData: FlBorderData(show: false),
+                                      lineBarsData: [
+                                        LineChartBarData(
+                                          spots: sensor.tempHistory.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+                                          isCurved: true,
+                                          color: Colors.tealAccent.withOpacity(0.6),
+                                          barWidth: 2,
+                                          isStrokeCapRound: true,
+                                          dotData: const FlDotData(show: false),
+                                          belowBarData: BarAreaData(
+                                            show: true,
+                                            color: Colors.tealAccent.withOpacity(0.1),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),

@@ -9,7 +9,8 @@ import '../services/secure_storage_service.dart';
 
 class ApiService {
   // 🔹 DYNAMIC BACKEND SYSTEM
-  static const String localIp = '192.168.0.101';
+  static const String localIp = '192.168.0.101'; // 🏠 Physical Wi-Fi
+  static const String vpnIp = '10.236.130.137';   // 🔐 VPN Adapter
   static const String emulatorIp = '10.0.2.2';
   static const String localPort = '5002';
   static const String renderUrl = 'smridge-819t.onrender.com';
@@ -25,6 +26,7 @@ class ApiService {
   static String get userUrl => '${currentBaseUrl.value}/api/user';
   static String get baseUrl => '${currentBaseUrl.value}/api/items';
   static String get deviceUrl => '${currentBaseUrl.value}/api/device';
+  static String get sensorUrl => '${currentBaseUrl.value}/api/sensors';
 
   /// 🔹 Pre-warm the Render backend (Cold Start mitigation)
   static void wakeUpBackend() {
@@ -48,7 +50,7 @@ class ApiService {
     try {
       final localTestUrl = 'http://$localIp:$localPort/health';
       print("🔍 Checking Physical Local: $localTestUrl");
-      final response = await http.get(Uri.parse(localTestUrl)).timeout(const Duration(seconds: 2));
+      final response = await http.get(Uri.parse(localTestUrl)).timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         print("✅ Local Backend Detected (Physical)! Using: http://$localIp:$localPort");
         currentBaseUrl.value = 'http://$localIp:$localPort';
@@ -78,9 +80,34 @@ class ApiService {
       }
     } catch (e) { print("ℹ️ Localhost unreachable: $e"); }
 
-    // 3. Fallback to Render
-    print("🌍 Falling back to Cloud Backend: https://$renderUrl");
-    currentBaseUrl.value = 'https://$renderUrl';
+    // 3. Fallback to VPN Local
+    try {
+      final vpnTestUrl = 'http://$vpnIp:$localPort/health';
+      print("🔍 Checking VPN Local: $vpnTestUrl");
+      final response = await http.get(Uri.parse(vpnTestUrl)).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        print("✅ Local Backend Detected (VPN)! Using: http://$vpnIp:$localPort");
+        currentBaseUrl.value = 'http://$vpnIp:$localPort';
+        return;
+      }
+    } catch (e) { print("ℹ️ Local (VPN) unreachable"); }
+
+    // 4. Fallback to Render (with reachability check)
+    try {
+      print("🌍 Checking Cloud Backend reachability: https://$renderUrl");
+      final response = await http.get(Uri.parse('https://$renderUrl/health')).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        print("✅ Cloud Backend Verified! Using: https://$renderUrl");
+        currentBaseUrl.value = 'https://$renderUrl';
+        return;
+      }
+    } catch (e) {
+      print("⚠️ Cloud Backend Unreachable or DNS failure: $e");
+    }
+
+    // 5. Final choice: If everything fails, stick to local emulator/physical IP as last known good
+    print("📡 Local/Cloud both unreachable. Staying on best-guess local: http://$localIp:$localPort");
+    currentBaseUrl.value = 'http://$localIp:$localPort';
   }
 
   static Future<void> setManualIp(String? ip) async {
@@ -601,5 +628,60 @@ class ApiService {
       print("❌ [ESP32] Health Check failed: $e");
       return false;
     }
+  }
+
+  // 🔹 ANALYTICS
+  
+  static Future<List<dynamic>> getTemperatureTrend(String token) async {
+    try {
+      final url = Uri.parse('$baseDomain/api/analytics/temperature');
+      print("📡 [API] Fetching Temperature Trend from: $url");
+      final response = await http.get(url, headers: {'x-auth-token': token});
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      print("❌ [API] Fetch Temperature Trend Error: $e");
+    }
+    return [];
+  }
+
+  // 🆕 ADDED FOR QR SCAN FLOW
+  static Future<Map<String, dynamic>?> addDevice(String deviceId, String deviceName, String token) async {
+    try {
+      final url = Uri.parse('$deviceUrl/add');
+      print("📡 [API] Linking Device via QR: $url");
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+        body: jsonEncode({
+          'deviceId': deviceId,
+          'deviceName': deviceName,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      
+      print("📥 Add Device Response [${response.statusCode}]: ${response.body}");
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("❌ [API] Add Device Error: $e");
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getLatestSensorData(String deviceId, String token) async {
+    try {
+      final url = Uri.parse('$sensorUrl/device/$deviceId');
+      print("📡 [API] Fetching Device Data: $url");
+      final response = await http.get(
+        url,
+        headers: {'x-auth-token': token},
+      );
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("❌ [API] Fetch Device Data Error: $e");
+    }
+    return null;
   }
 }

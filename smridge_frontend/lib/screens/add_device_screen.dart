@@ -2,23 +2,24 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:network_info_plus/network_info_plus.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:app_settings/app_settings.dart';
 import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../widgets/premium_setup_visualizer.dart';
 import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:http/http.dart' as http;
 import 'home_screen.dart';
 
 enum SetupStep {
   welcome,
-  detection,
-  wifiConfig,
+  qrScan,
+  connectDeviceWifi,   // Instruct connect to SMRIDGE_SETUP
+  provisionHomeWifi,   // Enter home SSID & Pass -> Send to ESP
+  reconnectHomeWifi,   // Instruct connect to HOME network before cloud linking
+  nameDevice,
   processing,
   success
 }
@@ -41,73 +42,27 @@ class AddDeviceScreen extends StatefulWidget {
 
 class _AddDeviceScreenState extends State<AddDeviceScreen> {
   SetupStep _currentStep = SetupStep.welcome;
-  final NetworkInfo _networkInfo = NetworkInfo();
-  
-  String? _currentSsid;
-  bool _isCheckingWifi = false;
-  
-  final TextEditingController _wifiSsidController = TextEditingController();
-  final TextEditingController _wifiPasswordController = TextEditingController();
-  bool _obscurePassword = true;
+  String? _scannedDeviceId;
+  final TextEditingController _deviceNameController = TextEditingController(text: "My Smridge");
+  final TextEditingController _ssidController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isScannerActive = false;
+  bool _isProvisioning = false;
   
   List<String> _progressLogs = [];
   double _progressValue = 0.0;
   
-  Timer? _pollingTimer;
-  
-  // ⚙️ Hardware Setup Settings
-  bool _autoReconnect = true;
-  bool _aggressiveScan = false;
-  double _sensitivity = 0.7;
-
   @override
   void initState() {
     super.initState();
-    if (widget.isReconnecting) {
-       _wifiSsidController.text = widget.initialSsid ?? '';
-       _wifiPasswordController.text = widget.initialPassword ?? '';
-       _currentStep = SetupStep.wifiConfig;
-    }
-    _loadCurrentWifi();
-    _loadSetupSettings();
   }
 
-  Future<void> _loadSetupSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _autoReconnect = prefs.getBool('setup_auto_reconnect') ?? true;
-      _aggressiveScan = prefs.getBool('setup_aggressive_scan') ?? false;
-      _sensitivity = prefs.getDouble('setup_sensitivity') ?? 0.7;
-    });
-  }
-
-  Future<void> _saveSetting(String key, dynamic value) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (value is bool) await prefs.setBool(key, value);
-    if (value is double) await prefs.setDouble(key, value);
-    setState(() {
-      if (key == 'setup_auto_reconnect') _autoReconnect = value;
-      if (key == 'setup_aggressive_scan') _aggressiveScan = value;
-      if (key == 'setup_sensitivity') _sensitivity = value;
-    });
-  }
-
-  Future<void> _loadCurrentWifi() async {
-    try {
-      String? ssid = await _networkInfo.getWifiName();
-      // Remove quotes if present
-      if (ssid != null && ssid.startsWith('"') && ssid.endsWith('"')) {
-        ssid = ssid.substring(1, ssid.length - 1);
-      }
-      setState(() {
-        _currentSsid = ssid;
-        if (ssid != null && !ssid.contains("SMRIDGE_SETUP")) {
-           _wifiSsidController.text = ssid;
-        }
-      });
-    } catch (e) {
-      print("Error getting WiFi name: $e");
-    }
+  @override
+  void dispose() {
+    _deviceNameController.dispose();
+    _ssidController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   void _nextStep() {
@@ -128,215 +83,128 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     });
   }
 
-  // --- LOGIC FOR STEP 2: DETECTION ---
-  Future<void> _checkEspConnection() async {
-    setState(() => _isCheckingWifi = true);
-    
-    // 🔍 Step 1: Basic WiFi check
-    await _loadCurrentWifi();
-    
-    if (_currentSsid == null || !_currentSsid!.toUpperCase().contains("SMRIDGE_SETUP")) {
-      setState(() => _isCheckingWifi = false);
-      SnackbarUtils.showWarning(context, "Not connected to SMRIDGE_SETUP. Current WiFi: ${_currentSsid ?? 'None'}");
-      return;
-    }
-
-    // 📡 Step 2: Active Ping to check Hardware Health
-    final isAlive = await ApiService.checkEspHealth();
-    
-    setState(() => _isCheckingWifi = false);
-    
-    if (isAlive) {
-      _nextStep();
+  // --- LOGIC FOR STEP 2: QR SCAN ---
+  void _onQrScanned(String? code) {
+    if (code != null && code.isNotEmpty) {
+      setState(() {
+        _scannedDeviceId = code.trim().toUpperCase();
+        _isScannerActive = false;
+      });
+      _nextStep(); // Move to connectDeviceWifi
     } else {
-      SnackbarUtils.showError(context, "ESP32 Device not responding. Please ensure you are connected to its Access Point.");
+      SnackbarUtils.showError(context, "Invalid QR Code detected.");
     }
   }
 
-  // --- LOGIC FOR STEP 3: WIFI CONFIG ---
-  Future<void> _startConfiguration() async {
-    if (_wifiSsidController.text.isEmpty || _wifiPasswordController.text.isEmpty) {
-      SnackbarUtils.showWarning(context, "Please enter both SSID and Password");
+  // --- LOGIC FOR STEP 3: HARDWARE PROVISIONING ---
+  Future<void> _sendWifiCredentials() async {
+    final ssid = _ssidController.text.trim();
+    final pass = _passwordController.text.trim();
+
+    if (ssid.isEmpty || pass.isEmpty) {
+      SnackbarUtils.showWarning(context, "Please enter both SSID and Password.");
+      return;
+    }
+
+    setState(() {
+      _isProvisioning = true;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://192.168.4.1/connect'),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: {
+          'ssid': ssid,
+          'password': pass,
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 && response.body.contains('saved')) {
+        SnackbarUtils.showSuccess(context, "Credentials sent! ESP32 is restarting.");
+        _nextStep(); // Move to reconnectHomeWifi
+      } else {
+        SnackbarUtils.showError(context, "Failed to provision. Check device connection.");
+      }
+    } catch (e) {
+      SnackbarUtils.showError(context, "Could not reach device. Are you connected to SMRIDGE_SETUP?");
+    } finally {
+      setState(() {
+        _isProvisioning = false;
+      });
+    }
+  }
+
+  // --- LOGIC FOR STEP 6: NAME DEVICE ---
+  Future<void> _startRegistration() async {
+    if (_deviceNameController.text.trim().isEmpty) {
+      SnackbarUtils.showWarning(context, "Please enter a name for your fridge.");
       return;
     }
 
     _nextStep(); // Move to Processing
-    _runProvisioningSequence();
+    _runRegistrationSequence();
   }
 
   // --- LOGIC FOR STEP 4: PROCESSING ---
-  Future<void> _runProvisioningSequence() async {
+  Future<void> _runRegistrationSequence() async {
     setState(() {
-      _progressLogs = ["📡 Connected to device"];
-      _progressValue = 0.2;
+      _progressValue = 0.1; // 🚀 Immediate Feedback (prevents 0% hang)
+      _progressLogs = ["🛡️ Checking security tokens..."];
     });
 
-    await Future.delayed(const Duration(seconds: 2));
-    setState(() {
-      _progressLogs.add("⏳ Sending WiFi credentials...");
-      _progressValue = 0.4;
-    });
-
-    bool sent = await ApiService.connectToEsp(
-      _wifiSsidController.text,
-      _wifiPasswordController.text,
-    );
-
-    if (!sent) {
-       _progressLogs.add("❌ Failed to send credentials. Check connection.");
+    final token = await SecureStorageService.getToken();
+    if (token == null) {
+       setState(() {
+         _progressLogs.add("❌ Authentication Error: Token Missing");
+         _progressValue = 0.0;
+       });
        return;
     }
 
     setState(() {
-      _progressLogs.add("⏳ Device connecting to network...");
-      _progressValue = 0.6;
+      _progressLogs.add("📡 Linking device $_scannedDeviceId to cloud...");
+      _progressValue = 0.4;
     });
 
-    await Future.delayed(const Duration(seconds: 5));
+    await Future.delayed(const Duration(milliseconds: 800));
 
-    setState(() {
-      _progressLogs.add("⏳ Registering device to backend...");
-      _progressValue = 0.8;
-    });
+    try {
+      final result = await ApiService.addDevice(
+        _scannedDeviceId!, 
+        _deviceNameController.text, 
+        token
+      );
 
-    // Start Polling Backend for device registration
-    _startPolling();
-  }
-
-  void _startPolling() {
-    _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      final token = await SecureStorageService.getToken();
-      if (token == null) return;
-      
-      final devices = await ApiService.getUserDevices(token);
-      if (devices.isNotEmpty) {
-        timer.cancel();
-        if (mounted) {
-          setState(() {
-            _progressValue = 1.0;
-            _progressLogs.add("✅ Device synchronized successfully!");
-          });
-        }
+      if (result != null) {
+        setState(() {
+          _progressValue = 0.7;
+          _progressLogs.add("✅ Device linked to account!");
+        });
         
-        // 💾 Save credentials locally for future "Premium Reconnect"
-        await SecureStorageService.saveWifiCredentials(
-          _wifiSsidController.text, 
-          _wifiPasswordController.text
-        );
+        await Future.delayed(const Duration(milliseconds: 1000));
+        
+        setState(() {
+           _progressValue = 1.0;
+           _progressLogs.add("✨ System ready.");
+        });
 
-        await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(const Duration(milliseconds: 600));
         if (mounted) _nextStep(); // Move to Success
+      } else {
+        setState(() {
+          _progressLogs.add("❌ Registration failed. Server error.");
+          _progressValue = 0.0;
+        });
       }
-    });
-  }
-
-  void _showSetupSettings() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          padding: const EdgeInsets.all(30),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F2027).withOpacity(0.9),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 25),
-              Text("SETUP CONFIGURATION", style: GoogleFonts.orbitron(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 2)),
-              const SizedBox(height: 30),
-              _buildConfigTile(
-                Icons.sync_outlined, 
-                "Auto-Reconnect", 
-                "Try connecting if signal drops", 
-                _autoReconnect,
-                onChanged: (val) => _saveSetting('setup_auto_reconnect', val),
-              ),
-              _buildConfigTile(
-                Icons.wifi_tethering_outlined, 
-                "Aggressive Scan", 
-                "Find hidden devices", 
-                _aggressiveScan,
-                onChanged: (val) => _saveSetting('setup_aggressive_scan', val),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  const Icon(Icons.signal_wifi_4_bar_outlined, color: Colors.white54, size: 18),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Sensitivity Threshold", style: GoogleFonts.outfit(color: Colors.white, fontSize: 14)),
-                        Slider(
-                          value: _sensitivity,
-                          onChanged: (val) => _saveSetting('setup_sensitivity', val),
-                          activeColor: Colors.tealAccent,
-                          inactiveColor: Colors.white10,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              // Shortcut to System WiFi
-              _buildConfigTile(
-                Icons.wifi_find_outlined, 
-                "System WiFi Settings", 
-                "Connect to SMRIDGE_SETUP manually", 
-                false,
-                onTap: () => AppSettings.openAppSettings(type: AppSettingsType.wifi),
-              ),
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildConfigTile(IconData icon, String title, String sub, bool initialVal, {VoidCallback? onTap, ValueChanged<bool>? onChanged}) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white54, size: 22),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                Text(sub, style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12)),
-              ]),
-            ),
-            if (onTap == null) Switch(
-              value: initialVal, 
-              onChanged: onChanged, 
-              activeColor: Colors.tealAccent
-            ),
-            if (onTap != null) const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 14),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _wifiSsidController.dispose();
-    _wifiPasswordController.dispose();
-    _pollingTimer?.cancel();
-    super.dispose();
+    } catch (e) {
+      setState(() {
+        _progressLogs.add("❌ Connection timeout. Device may be off.");
+        _progressValue = 0.0;
+      });
+    }
   }
 
   @override
@@ -373,25 +241,16 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           Positioned(
             top: 50,
             right: 20,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined, color: Colors.white70),
-                  onPressed: _showSetupSettings,
-                ),
-                const SizedBox(width: 10),
-                IconButton(
-                  icon: const Icon(Icons.skip_next_outlined, color: Colors.white70),
-                  tooltip: "Bypass Setup",
-                  onPressed: () {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(builder: (_) => const HomeScreen()),
-                      (route) => false,
-                    );
-                  },
-                ),
-              ],
+            child: IconButton(
+              icon: const Icon(Icons.skip_next_outlined, color: Colors.white70),
+              tooltip: "Bypass Setup",
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (route) => false,
+                );
+              },
             ),
           ).animate().fadeIn(delay: 1.seconds),
         ],
@@ -403,15 +262,158 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     switch (_currentStep) {
       case SetupStep.welcome:
         return _buildWelcome();
-      case SetupStep.detection:
-        return _buildDetection();
-      case SetupStep.wifiConfig:
-        return _buildWifiConfig();
+      case SetupStep.qrScan:
+        return _buildQrScan();
+      case SetupStep.connectDeviceWifi:
+        return _buildConnectDeviceWifi();
+      case SetupStep.provisionHomeWifi:
+        return _buildProvisionHomeWifi();
+      case SetupStep.reconnectHomeWifi:
+        return _buildReconnectHomeWifi();
+      case SetupStep.nameDevice:
+        return _buildNameDevice();
       case SetupStep.processing:
         return _buildProcessing();
       case SetupStep.success:
         return _buildSuccess();
     }
+  }
+
+  Widget _buildConnectDeviceWifi() {
+    return _buildGlassCard(
+      children: [
+        const Icon(Icons.wifi_tethering, size: 60, color: Colors.tealAccent),
+        const SizedBox(height: 24),
+        Text(
+          "CONNECT TO DEVICE",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          "1. Open your phone's Wi-Fi settings.\n2. Connect to the network: SMRIDGE_SETUP\n3. Password is: 12345678\n4. Return to this app.",
+          textAlign: TextAlign.left,
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            onPressed: _nextStep,
+            child: Text(
+              "I'M CONNECTED",
+              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
+          ),
+        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
+      ],
+    );
+  }
+
+  Widget _buildProvisionHomeWifi() {
+    return _buildGlassCard(
+      children: [
+        const Icon(Icons.router, size: 60, color: Colors.tealAccent),
+        const SizedBox(height: 24),
+        Text(
+          "ENTER HOME WI-FI",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          "Please enter your home internet details. We will send this to your Smridge.",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13),
+        ),
+        const SizedBox(height: 24),
+        _buildTextField(
+          controller: _ssidController,
+          label: "Wi-Fi Name (SSID)",
+          icon: Icons.wifi,
+        ),
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _passwordController,
+          label: "Wi-Fi Password",
+          icon: Icons.lock_outline,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            onPressed: _isProvisioning ? null : _sendWifiCredentials,
+            child: _isProvisioning 
+                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.black))
+                : Text(
+                    "SEND CREDENTIALS",
+                    style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                  ),
+          ),
+        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
+      ],
+    );
+  }
+
+  Widget _buildReconnectHomeWifi() {
+    return _buildGlassCard(
+      children: [
+        const Icon(Icons.cloud_done_outlined, size: 60, color: Colors.tealAccent),
+        const SizedBox(height: 24),
+        Text(
+          "RECONNECT HOME",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          "Your fridge is now restarting!\n\nPlease reconnect your phone to your normal Home Wi-Fi internet before continuing.",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            onPressed: _nextStep,
+            child: Text(
+              "I'M RECONNECTED",
+              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
+          ),
+        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
+      ],
+    );
   }
 
   Widget _buildGlassCard({required List<Widget> children, double width = 340}) {
@@ -548,127 +550,102 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     );
   }
 
-  Widget _buildDetection() {
-    return _buildGlassCard(
+  Widget _buildQrScan() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const PremiumSetupVisualizer(),
-        const SizedBox(height: 32),
         Text(
-          "Searching for device...",
+          "SCAN DEVICE QR",
           style: GoogleFonts.orbitron(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
+            letterSpacing: 2,
           ),
-        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
+        ).animate().fadeIn().slideY(begin: -0.2),
         const SizedBox(height: 24),
-        RichText(
+        ClipRRect(
+          borderRadius: BorderRadius.circular(30),
+          child: Container(
+            width: 280,
+            height: 280,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.tealAccent.withOpacity(0.5), width: 2),
+              boxShadow: [
+                BoxShadow(color: Colors.tealAccent.withOpacity(0.1), blurRadius: 20, spreadRadius: 5)
+              ],
+            ),
+            child: Stack(
+              children: [
+                MobileScanner(
+                  onDetect: (capture) {
+                    final List<Barcode> barcodes = capture.barcodes;
+                    if (barcodes.isNotEmpty) {
+                      _onQrScanned(barcodes.first.rawValue);
+                    }
+                  },
+                ),
+                // Scanning Line Animation
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.tealAccent.withOpacity(0.2),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.4, 0.5, 0.6],
+                      ),
+                    ),
+                  ).animate(onPlay: (c) => c.repeat()).slideY(duration: 2.seconds, begin: -1, end: 1),
+                ),
+              ],
+            ),
+          ),
+        ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+        const SizedBox(height: 32),
+        Text(
+          "Point your camera at the QR code\nattached to your Smridge device.",
           textAlign: TextAlign.center,
-          text: TextSpan(
-            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
-            children: const [
-              TextSpan(text: "Please connect your phone to the "),
-              TextSpan(text: "SMRIDGE_SETUP", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-              TextSpan(text: " WiFi network in your settings."),
-            ],
-          ),
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15),
         ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.wifi, color: Colors.white54, size: 14),
-              const SizedBox(width: 8),
-              Text(
-                "Current: ${_currentSsid ?? 'Checking...'}",
-                style: GoogleFonts.outfit(color: Colors.white54, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 48),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white24),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: _showSetupSettings,
-                child: Text("SETTINGS", style: GoogleFonts.orbitron(fontSize: 12, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.tealAccent,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: _checkEspConnection,
-                child: _isCheckingWifi 
-                  ? const SizedBox(height: 15, width: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
-                  : Text("CONNECTED", style: GoogleFonts.orbitron(fontSize: 12, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        TextButton(
+        const SizedBox(height: 40),
+        TextButton.icon(
           onPressed: _prevStep,
-          child: Text("GO BACK", style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13, letterSpacing: 1)),
+          icon: const Icon(Icons.arrow_back, color: Colors.white54, size: 16),
+          label: Text("BACK", style: GoogleFonts.outfit(color: Colors.white54)),
         ),
       ],
     );
   }
 
-  Widget _buildWifiConfig() {
+  Widget _buildNameDevice() {
     return _buildGlassCard(
       children: [
-        const Hero(
-          tag: 'device_icon',
-          child: Icon(Icons.wifi_lock, size: 60, color: Colors.tealAccent),
-        ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+        const Icon(Icons.edit_note_outlined, size: 60, color: Colors.tealAccent),
         const SizedBox(height: 24),
         Text(
-          "Device WiFi Setup",
+          "NAME YOUR FRIDGE",
           style: GoogleFonts.orbitron(
             color: Colors.white,
-            fontSize: 22,
+            fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 12),
         Text(
-          "Target SSID: ${(_currentSsid != null && _currentSsid!.toUpperCase().contains('SMRIDGE_SETUP')) ? 'ESP32 Device' : 'Unknown'}",
-          style: GoogleFonts.outfit(color: Colors.tealAccent.withOpacity(0.7), fontSize: 13),
+          "DEVICE ID: $_scannedDeviceId",
+          style: GoogleFonts.outfit(color: Colors.tealAccent.withOpacity(0.7), fontSize: 12, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 32),
         _buildTextField(
-          controller: _wifiSsidController,
-          label: "Network SSID",
-          icon: Icons.wifi,
+          controller: _deviceNameController,
+          label: "Device Nickname",
+          icon: Icons.drive_file_rename_outline,
         ).animate().fadeIn(delay: 200.ms).slideX(begin: 0.1),
-        const SizedBox(height: 20),
-        _buildTextField(
-          controller: _wifiPasswordController,
-          label: "Password",
-          icon: Icons.lock_outline,
-          isPassword: true,
-        ).animate().fadeIn(delay: 400.ms).slideX(begin: 0.1),
         const SizedBox(height: 48),
         SizedBox(
           width: double.infinity,
@@ -679,17 +656,17 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               foregroundColor: Colors.black,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
-            onPressed: _startConfiguration,
+            onPressed: _startRegistration,
             child: Text(
-              "CONNECT DEVICE",
+              "FINISH SETUP",
               style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
             ),
           ),
-        ).animate().fadeIn(delay: 600.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
+        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
         const SizedBox(height: 16),
         TextButton(
           onPressed: _prevStep,
-          child: Text("GO BACK", style: GoogleFonts.outfit(color: Colors.white54)),
+          child: Text("SCAN AGAIN", style: GoogleFonts.outfit(color: Colors.white54)),
         ),
       ],
     );
@@ -699,7 +676,6 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     required TextEditingController controller,
     required String label,
     required IconData icon,
-    bool isPassword = false,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -709,16 +685,11 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
       ),
       child: TextField(
         controller: controller,
-        obscureText: isPassword && _obscurePassword,
         style: GoogleFonts.outfit(color: Colors.white),
         decoration: InputDecoration(
           labelText: label,
           labelStyle: GoogleFonts.outfit(color: Colors.white54, fontSize: 14),
           prefixIcon: Icon(icon, color: Colors.tealAccent, size: 20),
-          suffixIcon: isPassword ? IconButton(
-            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54, size: 18),
-            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-          ) : null,
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           floatingLabelStyle: GoogleFonts.outfit(color: Colors.tealAccent),
@@ -817,8 +788,8 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              onPressed: () => setState(() => _currentStep = SetupStep.wifiConfig),
-              child: const Text("RETRY CONNECTION"),
+              onPressed: () => setState(() => _currentStep = SetupStep.qrScan),
+              child: const Text("RETRY SCANNING"),
             ),
           )
       ],

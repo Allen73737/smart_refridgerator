@@ -27,6 +27,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   
   // 🛡️ Track timers already sent to shade in this session to prevent spam suppression
   static final Set<int> _triggeredTimers = {};
+  // 🗑️ Track timers manually dismissed by the user in this session
+  static final Set<int> _dismissedTimerIds = {};
   List<Map<String, dynamic>> notifications = [];
   List<InventoryItem> activeReminders = [];
   List<dynamic> combinedFeed = [];
@@ -78,7 +80,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final items = await ApiService.getInventory(token);
       
       final now = DateTime.now();
-      final timers = items.where((i) => i.reminderDate != null && i.reminderDate!.toLocal().isAfter(now)).toList();
+      // 🔔 User-set Reminders
+      final reminders = items.where((i) => i.reminderDate != null && i.reminderDate!.toLocal().isAfter(now)).toList();
+      // 🔔 Items expiring within 72 hours (3 days) - Matched to HomeScreen logic
+      final expiringSoon = items.where((i) {
+        final diff = i.expiryDate.toLocal().difference(now);
+        return diff.isNegative == false && diff.inHours < 72;
+      }).toList();
+
+      final List<InventoryItem> timers = [...reminders, ...expiringSoon];
+      // deduplicate if an item is in both (though reminder is usually set before expiry)
+      final seenIds = <String>{};
+      timers.retainWhere((item) {
+        final id = item.id ?? item.name;
+        final int safeId = (id.hashCode).abs() % 100000;
+        return seenIds.add(id) && !_dismissedTimerIds.contains(safeId);
+      });
 
       List<dynamic> combined = [];
       if (timers.isNotEmpty) {
@@ -87,12 +104,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         // 🔔 Re-trigger live shade countdown for each active timer (Once per session to avoid spam)
         for (final t in timers) {
           final int safeId = (t.id?.hashCode ?? t.name.hashCode).abs() % 100000;
-          if (!_triggeredTimers.contains(safeId)) {
+          if (t.reminderDate != null && t.reminderDate!.toLocal().isAfter(now)) {
             NotificationService().scheduleLocalReminder(
               safeId, t.name, t.reminderDate!.toLocal(),
               imagePath: t.imagePath,
             );
-            _triggeredTimers.add(safeId);
+          } else {
+            // Expiring item (no custom reminder set but within 3h)
+            NotificationService().showCountdownNotification(
+              t.name, t.expiryDate.toLocal(),
+              itemId: safeId,
+            );
           }
         }
       }
@@ -484,9 +506,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildLiveTimerCard(InventoryItem item, bool isLight, bool isDark) {
-    Color color = Colors.amberAccent;
-    final targetTime = item.reminderDate!.toLocal();
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc();
+    final isReminder = item.reminderDate != null && item.reminderDate!.toUtc().isAfter(now);
+    final targetTime = isReminder ? item.reminderDate!.toUtc() : item.expiryDate.toUtc();
+    Color color = isReminder ? Colors.amberAccent : Colors.redAccent;
     final diff = targetTime.difference(now);
 
     // ⏳ Format as countdown: "in 2h 30m 15s" or "OVERDUE"
@@ -529,7 +552,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
         leading: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), // 🛠️ Shrink to fit 32px
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           decoration: BoxDecoration(
             color: color.withOpacity(0.15),
             borderRadius: BorderRadius.circular(12),
@@ -538,10 +561,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.timer, color: color, size: 16), // 🛠️ 22 -> 16
+              Icon(Icons.timer, color: color, size: 16),
               Text(
                 countdownStr.startsWith("in ") ? countdownStr.substring(3) : countdownStr,
-                style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold), // 🛠️ 9 -> 8
+                style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -579,13 +602,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
-                    child: const Text("SHADE ACTIVE", style: TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold)),
+                    child: Text(isReminder ? "REMINDER ACTIVE" : "EXPIRY PROTOCOL", style: const TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
             ],
           ),
         ),
+        trailing: IconButton(
+          icon: Icon(Icons.close, color: color.withOpacity(0.6), size: 20),
+          onPressed: () async {
+            final int safeId = (item.id?.hashCode ?? item.name.hashCode).abs() % 100000;
+            // 1. Cancel in OS shade
+            await NotificationService().cancelNotification(safeId + 30000); // For reminders
+            await NotificationService().cancelNotification(safeId); // For expiry
+            
+            // 2. Hide in App UI
+            if (mounted) {
+              setState(() {
+                _dismissedTimerIds.add(safeId);
+                // Also update combined feed right away
+                combinedFeed.remove(item);
+                activeReminders.removeWhere((t) => (t.id ?? t.name) == (item.id ?? item.name));
+              });
+            }
+          },
+          tooltip: "Dismiss Timer",
+        ).animate().scale(duration: 200.ms),
       ),
     );
   }

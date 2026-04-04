@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/wave_background.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../services/secure_storage_service.dart';
 import '../widgets/system_monitoring_indicators.dart';
+import '../providers/sensor_provider.dart'; // 🚀 Added
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 
@@ -34,9 +36,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void initState() {
-    super.initState();
-    _initSocketListeners();
-    // ⏱️ Timeout: stop spinner after 10s even if no ESP32 data arrives
+    _fetchHistoricalData(); 
+    
+    // 🧬 DATA UNIFICATION: Listen to the central SensorProvider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+       if (mounted) {
+         context.read<SensorProvider>().addListener(_onSensorDataUpdate);
+       }
+    });
+
     _loadingTimeout = Timer(const Duration(seconds: 10), () {
       if (mounted && isLoading) {
         setState(() {
@@ -47,13 +55,45 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     });
   }
 
-  void _initSocketListeners() {
-    SocketService.on('sensor_data', _onHardwareUpdate);
+  Future<void> _fetchHistoricalData() async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) return;
+    
+    final List<dynamic> trends = await ApiService.getTemperatureTrend(token);
+    if (!mounted || trends.isEmpty) return;
+
+    setState(() {
+      _tempData.clear();
+      _humData.clear();
+      _freshData.clear();
+      _doorData.clear();
+
+      for (int i = 0; i < trends.length; i++) {
+        final data = trends[i];
+        double x = i.toDouble();
+        _timeX = x + 1;
+
+        double temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
+        double hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
+        double fresh = double.tryParse(data['calculatedFreshness']?.toString() ?? "85.0") ?? 85.0;
+        double doorVal = data['doorStatus'] == 'open' ? 1.0 : 0.0;
+
+        _tempData.add(FlSpot(x, temp));
+        _humData.add(FlSpot(x, hum));
+        _freshData.add(FlSpot(x, fresh));
+        _doorData.add(FlSpot(x, doorVal));
+      }
+      
+      _lastUpdated = DateTime.now();
+      _syncStatus = "History Loaded";
+      isLoading = false;
+    });
   }
 
-  void _onHardwareUpdate(dynamic data) {
+  void _onSensorDataUpdate() {
     if (!mounted) return;
-
+    final sensor = context.read<SensorProvider>();
+    
     setState(() {
       double x = _timeX;
       _timeX++;
@@ -65,30 +105,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _doorData.removeAt(0);
       }
 
-      // Safe parsing to prevent crashes
-      double temp = 8.0;
-      double hum = 60.0;
-      double fresh = 85.0;
-      
-      try {
-        temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
-        hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
-        fresh = double.tryParse(data['calculatedFreshness']?.toString() ?? "85.0") ?? 85.0;
-      } catch (e) {
-        debugPrint("Error parsing analytics sensor data: $e");
-      }
+      _tempData.add(FlSpot(x, sensor.temperature));
+      _humData.add(FlSpot(x, sensor.humidity));
+      _freshData.add(FlSpot(x, sensor.freshnessScore));
+      _doorData.add(FlSpot(x, sensor.doorStatus == "OPEN" ? 1.0 : 0.0));
 
-      double doorVal = data['doorStatus'] == 'open' ? 1.0 : 0.0;
-
-      _tempData.add(FlSpot(x, temp));
-      _humData.add(FlSpot(x, hum));
-      _freshData.add(FlSpot(x, fresh));
-      _doorData.add(FlSpot(x, doorVal));
-
-      _lastUpdated = DateTime.now();
-      
-      bool isReal = data['isReal'] ?? false;
-      _syncStatus = isReal ? "ESP32 Connected" : "ESP32 Connected(#)";
+      _lastUpdated = sensor.lastUpdated;
+      _syncStatus = sensor.isRealData ? "ESP32 Connected" : "ESP32 Connected(#)";
       isLoading = false;
     });
   }
@@ -96,7 +119,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void dispose() {
     _loadingTimeout?.cancel();
-    SocketService.off('sensor_data', _onHardwareUpdate);
+    try {
+      context.read<SensorProvider>().removeListener(_onSensorDataUpdate);
+    } catch (e) {
+      // Provider might be disposed
+    }
     super.dispose();
   }
 

@@ -6,6 +6,8 @@ const sensorDataSchema = new mongoose.Schema({
     gasLevel: { type: Number, required: true },
     weight: { type: Number, required: true },
     doorStatus: { type: String, enum: ['open', 'closed'], required: true },
+    freshnessScore: { type: Number },
+    status: { type: String, default: 'OPTIMAL' },
     energyConsumption: { type: Number, default: 0 }, // kWh
     isSimulated: { type: Boolean, default: false },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

@@ -4,6 +4,17 @@ const NotificationModel = require("../models/Notification");
 const User = require("../models/User");
 const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
+const crypto = require("crypto"); // 🔐 Added for stable ID hashing
+
+// 📐 Aligned with Frontend stableId logic: hashCode % 100000
+const getStableId = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash % 100000);
+};
 
 cron.schedule("* * * * *", async () => {
   try {
@@ -13,6 +24,7 @@ cron.schedule("* * * * *", async () => {
   const items = await Item.find();
 
   const intervals = [
+    { label: "72h", mins: 72 * 60 },
     { label: "48h", mins: 48 * 60 },
     { label: "36h", mins: 36 * 60 },
     { label: "24h", mins: 24 * 60 },
@@ -37,11 +49,11 @@ cron.schedule("* * * * *", async () => {
       // If we are within the interval window and hasn't been notified for this label yet
       if (diffMins <= interval.mins && (!item.notifiedIntervals || !item.notifiedIntervals.includes(interval.label))) {
         
-        let title = "Expiry Warning";
-        let message = `${item.name} is going to expire in ${interval.label}!`;
+        let title = `Expiry Warning: ${item.name}`;
+        let message = `Your ${item.name} is going to expire in ${interval.label}!`;
 
         if (interval.label === "expired") {
-          title = "Item Expired";
+          title = `Item Expired: ${item.name}`;
           message = `${item.name} has expired! Please discard it.`;
         }
 
@@ -65,7 +77,11 @@ cron.schedule("* * * * *", async () => {
         // Send Push Notification
         const user = await User.findById(item.userId);
         if (user && user.fcmToken) {
-          await sendPushNotification(user.fcmToken, title, message);
+          const stableId = getStableId(item.name);
+          await sendPushNotification(user.fcmToken, title, message, {
+             notificationId: (stableId + 1000000).toString(), // 🎯 Aligned with Tracker ID
+             type: "expiry"
+          });
         }
 
         break; 
@@ -95,7 +111,11 @@ cron.schedule("* * * * *", async () => {
 
         const user = await User.findById(item.userId);
         if (user && user.fcmToken) {
-          await sendPushNotification(user.fcmToken, title, message);
+          const stableId = getStableId(item.name);
+          await sendPushNotification(user.fcmToken, title, message, {
+             notificationId: (stableId + 1000000).toString(), 
+             type: "reminder"
+          });
         }
       }
     }

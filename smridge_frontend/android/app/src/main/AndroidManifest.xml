@@ -27,18 +27,18 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-        </activity>
-
-        <activity-alias
-            android:name=".Teal"
-            android:enabled="true"
-            android:exported="true"
-            android:icon="@mipmap/launcher_icon"
-            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name=".Teal"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/launcher_icon"
+            android:targetActivity=".MainActivity">
         </activity-alias>
 
         <activity-alias
@@ -95,6 +95,16 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider"
                 android:resource="@xml/widget_premium_info" />
+        </receiver>
+
+        <receiver android:name=".SmridgeChronoWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.smridge_frontend.ACTION_REFRESH_WIDGET" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_chrono_info" />
         </receiver>
 
         <!-- 🎯 Required for flutter_local_notifications scheduling -->

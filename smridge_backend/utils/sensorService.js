@@ -1,25 +1,76 @@
 const SensorData = require("../models/SensorData");
-const User = require("../models/User"); // 🔑 Added to satisfy validation
+const User = require("../models/User");
 
-// 🔹 State Tracking
+// --- ⚖️ LOAD CELL CALIBRATION CONSTANTS ---
+const OFFSET = 232000;        // Baseline raw value when empty
+const SCALE = 396;           // Raw units per gram
+const NOISE_THRESHOLD = 5;    // Grams (ignore small fluctuations)
+const CHANGE_THRESHOLD = 10;  // Grams (detect meaningful change)
+const BUFFER_SIZE = 10;       // Number of readings for smoothing
+
+// --- 🛡️ STATE TRACKERS ---
+const rawBuffers = new Map(); // deviceId -> array of raw values
+const previousWeights = new Map(); // deviceId -> weight
+
 let lastState = {
     temperature: 4.2,
     humidity: 62.1,
     gasLevel: 250,
-    weight: 0.0,   // Default 0 (empty scale) when ESP32 is offline
+    weight: 0.0,   // This will now store CALIBRATED weight in grams
+    event: "no_change",
     doorStatus: "closed"
 };
+
 let lastHardwareTimestamp = Date.now();
 let lastSimulationTimestamp = Date.now();
 
 /**
  * Updates the state with real data from ESP32.
+ * Performs calibration, smoothing, and change detection.
  */
-exports.updateLastKnown = (data) => {
+exports.updateLastKnown = (data, deviceId = "DEFAULT") => {
     const previous = { ...lastState };
-    lastState = { ...data };
+    
+    // 1. Maintain Smoothing Buffer
+    if (!rawBuffers.has(deviceId)) rawBuffers.set(deviceId, []);
+    const buffer = rawBuffers.get(deviceId);
+    
+    // The incoming 'weight' is the RAW value from the load cell
+    buffer.push(Number(data.weight));
+    if (buffer.length > BUFFER_SIZE) buffer.shift();
+    
+    // 2. Compute Smoothing (Moving Average)
+    const avgRaw = buffer.reduce((a, b) => a + b, 0) / buffer.length;
+    
+    // 3. Weight Calculation
+    let calibratedWeight = (avgRaw - OFFSET) / SCALE;
+    
+    // 4. Noise Filtering
+    if (calibratedWeight < NOISE_THRESHOLD) calibratedWeight = 0;
+    
+    // 5. Change Detection
+    const prevWeight = previousWeights.get(deviceId) || 0;
+    let event = "no_change";
+    
+    if (calibratedWeight > prevWeight + CHANGE_THRESHOLD) {
+        event = "added";
+    } else if (calibratedWeight < prevWeight - CHANGE_THRESHOLD) {
+        event = "removed";
+    }
+    
+    // 6. Update Persistent References
+    previousWeights.set(deviceId, calibratedWeight);
+    
+    // 7. Update Global State
+    lastState = { 
+        ...data, 
+        weight: Math.round(calibratedWeight * 100) / 100, // Round to 2 decimals
+        event 
+    };
+    
     lastHardwareTimestamp = Date.now();
     lastSimulationTimestamp = Date.now();
+    
     return previous;
 };
 
@@ -31,7 +82,6 @@ exports.getCurrentSensors = async () => {
     const isOffline = (now - lastHardwareTimestamp) > 30000;
 
     if (isOffline) {
-        // Apply high-frequency drift for "live" feel
         const elapsedS = (now - lastSimulationTimestamp) / 1000;
         if (elapsedS >= 1) {
             lastState.temperature += (Math.random() - 0.5) * 0.1 * elapsedS;
@@ -51,20 +101,15 @@ exports.getCurrentSensors = async () => {
 
 /**
  * 🕒 PERSISTENCE LOOP: Saves data to DB every 30s.
- * Direct persistence ensures Analytics (graphs) work.
  */
 setInterval(async () => {
     const now = Date.now();
     const sensors = await exports.getCurrentSensors();
     
-    // Only persist if offline (Drift) or if 30s passed for real data 
-    // (Real data is already throttled in sensorController, but we log here as safety)
     if (!sensors.isReal) {
         try {
-            // Find a user to attribute simulation data to (safety/multi-user compliance)
             const firstUser = await User.findOne().lean();
             if (firstUser) {
-                console.log(`[Simulator] ESP32 Offline. Persisting Analytics drift for User: ${firstUser._id}`);
                 await SensorData.create({
                     ...sensors,
                     energyConsumption: 0.1,

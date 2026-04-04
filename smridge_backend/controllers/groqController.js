@@ -13,19 +13,16 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // Helper: Fetch OpenFoodFacts data
 // ---------------------------------------------
 async function fetchOFFData(query) {
+    const offUtils = require("../utils/offUtils");
     try {
-        let url;
+        let product;
         if (/^\d+$/.test(query)) {
-            url = `https://world.openfoodfacts.org/api/v0/product/${query}.json`;
+            product = await offUtils.fetchProductByBarcode(query);
         } else {
-            url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=1`;
+            product = await offUtils.searchProductByName(query);
         }
-        const resp = await axios.get(url, { 
-            timeout: 5000,
-            headers: { 'User-Agent': 'SmridgeApp - Android - Version 1.0' }
-        });
-        if (resp.data.status === 1 || (resp.data.products && resp.data.products.length > 0)) {
-            const product = resp.data.product || resp.data.products[0];
+        
+        if (product) {
             return {
                 name: product.product_name,
                 brand: product.brands,

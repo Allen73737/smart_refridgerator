@@ -52,6 +52,36 @@ exports.getUserDevices = async (req, res) => {
     }
 };
 
+// 🟢 Add or Reassign Device via QR Scan
+exports.addDevice = async (req, res) => {
+    try {
+        const { deviceId, deviceName } = req.body;
+        const userId = req.user.id;
+
+        if (!deviceId) {
+            return res.status(400).json({ message: "Device ID is required to link a fridge." });
+        }
+
+        // Logic: Find and Update (Supports Reassignment as per Step 3)
+        const device = await Device.findOneAndUpdate(
+            { deviceId: deviceId.trim().toUpperCase() },
+            { userId, name: deviceName || "My Smridge", status: 'online', lastSeen: Date.now() },
+            { upsert: true, new: true }
+        );
+
+        // Link Device ID to the User Object for easier global lookups
+        await User.findByIdAndUpdate(userId, { deviceId: device._id });
+
+        res.status(200).json({ 
+            message: "Device linked successfully! 🧊", 
+            device 
+        });
+    } catch (error) {
+        console.error("Add Device Error:", error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // 🟢 Update Device Status (Heartbeat)
 exports.updateStatus = async (req, res) => {
     try {

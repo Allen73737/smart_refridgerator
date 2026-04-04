@@ -8,8 +8,11 @@ const Threshold = require("../models/Threshold");
 const FridgeStatus = require("../models/FridgeStatus");
 const Device = require("../models/Device"); // 🔑 Added for identity lookup
 
-const { getSensorScore } = require("../utils/freshnessUtils");
+const { calculateOverallFreshness, getAlertDetails } = require("../utils/freshnessUtils");
 const sensorService = require("../utils/sensorService");
+const activityState = require("../utils/activityState");
+const { createAndSendAlert } = require("../utils/notificationUtils");
+const Item = require("../models/Item");
 
 // Threshold Configurations
 const TEMP_THRESHOLD = 8;
@@ -83,14 +86,19 @@ exports.receiveSensorData = async (req, res) => {
       humidity += userHumOffset;
     }
 
-    // Save latest known state
+    // Save latest known state & get calibrated values
     const previousState = sensorService.updateLastKnown({
       temperature,
       humidity,
       gasLevel,
-      weight,
+      weight, // Pass raw weight for calibration
       doorStatus
-    });
+    }, deviceId);
+
+    // Get the newly calibrated weight and event
+    const liveSensors = await sensorService.getCurrentSensors();
+    const calibratedWeight = liveSensors.weight;
+    const weightEvent = liveSensors.event;
 
     // Log door activity if state changed
     if (previousState && previousState.doorStatus !== doorStatus && primaryUser) {
@@ -103,38 +111,43 @@ exports.receiveSensorData = async (req, res) => {
       );
     }
 
-    // Freshness calculation
-    const sensorDetails = getSensorScore({
+    // 🥗 Overall Freshness Calculation (Aggregate)
+    const activeItems = await Item.find({ userId: primaryUser._id });
+    const scores = calculateOverallFreshness({
       temperature,
       humidity,
       gasLevel,
-      weight,
-      doorStatus
-    });
+      weight: calibratedWeight
+    }, activeItems);
 
-    let calculatedFreshness = Math.round((sensorDetails.total / 60) * 100);
-
-    let status = "Fresh";
-    if (calculatedFreshness < 60) status = "Caution";
-    if (calculatedFreshness < 30) status = "Spoiled";
+    const alertDetails = getAlertDetails(scores);
+    const { freshness_score, status, alert, alert_type, message } = alertDetails;
 
     // Emit real-time socket event (TARGETED to owner only)
     socketManager.emitToUser(primaryUser._id, "sensor_data", {
       temperature,
       humidity,
       gasLevel,
-      weight,
+      weight: calibratedWeight, 
       doorStatus,
-      calculatedFreshness,
+      weightEvent,
+      doorOpen: doorStatus === "open",
+      calculatedFreshness: freshness_score,
       status,
+      alert,
+      alert_type,
+      message,
+      scores,
       isReal: true
     });
 
     // Respond to ESP32 immediately
     res.status(200).json({
       message: "Sensor data processed",
-      freshness: calculatedFreshness,
-      status
+      freshness: freshness_score,
+      status,
+      alert,
+      alert_type
     });
 
     // Throttle DB writes
@@ -155,8 +168,10 @@ exports.receiveSensorData = async (req, res) => {
       temperature,
       humidity,
       gasLevel,
-      weight,
+      weight: calibratedWeight, // Store calibrated weight
       doorStatus,
+      freshnessScore: freshness_score,
+      status: status,
       energyConsumption,
       userId: primaryUser._id,
       deviceId: deviceId
@@ -177,17 +192,35 @@ exports.receiveSensorData = async (req, res) => {
         { userId: primaryUser._id },
         {
           $set: {
-            freshnessPercentage,
+            freshnessPercentage: freshness_score,
             gasLevel,
             temperature,
             humidity,
             doorStatus,
-            weight,
+            weight: calibratedWeight,
+            status,
+            alertDetails: {
+              alert,
+              alert_type,
+              message
+            },
             lastUpdated: Date.now()
           }
         },
         { upsert: true, new: true }
       ).catch(err => console.error("FridgeStatus sync error:", err));
+
+      // 🚨 CRITICAL ALERT TRIGGER (Priority-based)
+      if (alert) {
+        const severityColor = (alert_type === "FOOD_SPOILED") ? "#FF0000" : "#FF9800";
+        createAndSendAlert(
+          primaryUser,
+          alert_type.toLowerCase(),
+          alert_type.replace(/_/g, " "),
+          message,
+          severityColor
+        );
+      }
 
       const T_LIMIT = adminThresholds?.temperatureLimitMax ?? TEMP_THRESHOLD;
       const G_LIMIT = adminThresholds?.gasLimitMax ?? GAS_THRESHOLD;
@@ -210,6 +243,20 @@ exports.receiveSensorData = async (req, res) => {
           `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`,
           "#FF5722"
         );
+      }
+
+      // ⚖️ WEIGHT ADDITION ALERT (GENERIC)
+      if (weightEvent === "added") {
+        const recentlyAdded = activityState.wasRecentlyAddedViaApp(primaryUser._id);
+        if (!recentlyAdded) {
+          createAndSendAlert(
+            primaryUser,
+            "inventory",
+            "Weight Increase Detected",
+            "Looks like some item is added to the inventory.",
+            "#4CAF50"
+          );
+        }
       }
 
       if (humidity > 80) {
@@ -254,16 +301,16 @@ exports.receiveSensorData = async (req, res) => {
   }
 };
 
-// 🟢 Get Latest Sensor Data for specific Device
+// 🟢 Get Latest Sensor Data for specific User (Ensures 100% Parity with Analytics)
 exports.getLatestSensorData = async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    const latest = await SensorData.findOne({ deviceId: deviceId.trim().toUpperCase() })
+    const userId = req.user.id;
+    const latest = await SensorData.findOne({ userId })
       .sort({ timestamp: -1 })
       .lean();
 
     if (!latest) {
-      return res.status(404).json({ message: "No sensor data found for this device" });
+      return res.status(404).json({ message: "No sensor data found for this account" });
     }
 
     res.status(200).json(latest);
@@ -273,40 +320,3 @@ exports.getLatestSensorData = async (req, res) => {
   }
 };
 
-// Helper for Alerts
-async function createAndSendAlert(user, type, title, message, color = "#FF0000") {
-  try {
-    const recentAlert = await NotificationModel.findOne({
-      userId: user._id,
-      type,
-      title,
-      createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
-    }).lean();
-
-    if (recentAlert) return;
-
-    const notification = await NotificationModel.create({
-      userId: user._id,
-      type,
-      title,
-      message,
-      color
-    });
-
-    socketManager.emitEvent("notification_update", {
-      action: "new",
-      notification
-    });
-
-    if (user.fcmToken) {
-      sendPushNotification(
-        user.fcmToken,
-        `Smridge: ${title}`,
-        message,
-        { type, color }
-      ).catch(err => console.error("Push error:", err));
-    }
-  } catch (err) {
-    console.error("Alert error:", err);
-  }
-}

@@ -1,100 +1,154 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/glass_bg"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:weightSum="100">
+    android:layout_height="match_parent">
 
-    <!-- Header Section -->
     <LinearLayout
+        android:id="@+id/widget_root"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="15"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="SMRIDGE"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-black"
-            android:letterSpacing="0.1" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=" · SYSTEM"
-            android:textColor="#00F2FF"
-            android:textSize="14sp"
-            android:fontFamily="sans-serif-medium" />
-    </LinearLayout>
-
-    <ImageView
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#3300F2FF"
-        android:layout_marginBottom="8dp"/>
-
-    <!-- Metrics Section -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="40"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
-        
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-            <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMP" android:textColor="#99FFFFFF" android:textSize="10sp" android:letterSpacing="0.1" />
-        </LinearLayout>
-        
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-            <TextView android:id="@+id/hum_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HUMIDITY" android:textColor="#99FFFFFF" android:textSize="10sp" android:letterSpacing="0.1" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-            <TextView android:id="@+id/freshness_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#00F2FF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FRESHNESS" android:textColor="#00F2FF" android:textSize="10sp" android:letterSpacing="0.1" />
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <!-- Info Section & Status -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="45"
+        android:layout_height="match_parent"
+        android:background="@drawable/glass_bg"
         android:orientation="vertical"
-        android:background="#1A00F2FF"
-        android:padding="8dp">
-        
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <TextView android:id="@+id/status_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="12sp" android:fontFamily="sans-serif-medium" android:singleLine="true"/>
-            <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#00F2FF" android:textSize="12sp" android:fontFamily="sans-serif-black" />
+        android:padding="16dp"
+        android:weightSum="100">
+
+        <!-- Header Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="15"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SMRIDGE"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.1" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · SYSTEM"
+                android:textColor="#00F2FF"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium" />
         </LinearLayout>
 
-        <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" android:layout_marginTop="4dp"/>
-        
-        <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium"/>
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#3300F2FF"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Metrics Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="40"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+            
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+                <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMP" android:textColor="#99FFFFFF" android:textSize="10sp" android:letterSpacing="0.1" />
+            </LinearLayout>
+            
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+                <TextView android:id="@+id/hum_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HUMIDITY" android:textColor="#99FFFFFF" android:textSize="10sp" android:letterSpacing="0.1" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+                <TextView android:id="@+id/freshness_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#00F2FF" android:textSize="26sp" android:fontFamily="sans-serif-light" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FRESHNESS" android:textColor="#00F2FF" android:textSize="10sp" android:letterSpacing="0.1" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Info Section & Status -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="45"
+            android:orientation="vertical"
+            android:background="#1A00F2FF"
+            android:padding="8dp">
+            
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/status_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="12sp" android:fontFamily="sans-serif-medium" android:singleLine="true"/>
+                <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#00F2FF" android:textSize="12sp" android:fontFamily="sans-serif-black" />
+            </LinearLayout>
+
+            <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" android:layout_marginTop="4dp"/>
+            
+            <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium"/>
+
+            <!-- ⏲️ LIVE TIMER SECTION -->
+            <LinearLayout
+                android:id="@+id/timer_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical">
+                <TextView
+                    android:id="@+id/timer_title_text"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:fontFamily="sans-serif-black"
+                    android:text="LIVE TRACKER"/>
+                <Chronometer
+                    android:id="@+id/timer_countdown"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#00F2FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:countDown="true"/>
+            </LinearLayout>
+        </LinearLayout>
+
     </LinearLayout>
 
-</LinearLayout>
+    <!-- 🚨 BLINK OVERLAY (Visible for 5s on finish) -->
+    <!-- ⚠️ FIXED: Using ImageView instead of View to satisfy RemoteViews rules -->
+    <ViewFlipper
+        android:id="@+id/blink_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:autoStart="true"
+        android:flipInterval="500"
+        android:visibility="gone">
+        <!-- Frame 1: Empty -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent" />
+        <!-- Frame 2: Warning Red Tint -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66FF0000" />
+    </ViewFlipper>
+
+</FrameLayout>

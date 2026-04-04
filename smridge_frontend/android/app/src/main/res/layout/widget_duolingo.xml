@@ -1,95 +1,152 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/duolingo_bg"
-    android:orientation="vertical"
-    android:padding="20dp"
-    android:weightSum="100">
+    android:layout_height="match_parent">
 
-    <!-- Header Section -->
     <LinearLayout
+        android:id="@+id/widget_root"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="20"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-        
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@drawable/ic_notif"
-            android:tint="#00BFA5"
-            android:layout_marginEnd="8dp"/>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="My Fridge!"
-            android:textColor="#004D40"
-            android:textSize="20sp"
-            android:fontFamily="sans-serif-black"
-            android:letterSpacing="-0.02" />
-    </LinearLayout>
-
-    <!-- Metrics Section (Bubbles) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="35"
-        android:orientation="horizontal"
-        android:baselineAligned="false"
-        android:layout_marginVertical="8dp">
-        
-        <!-- Temp Bubble -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/duolingo_pill_cyan"
-            android:layout_marginEnd="6dp"
-            android:gravity="center"
-            android:orientation="vertical">
-            <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#006064" android:textSize="28sp" android:fontFamily="sans-serif-black" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMP" android:textColor="#00838F" android:textSize="10sp" android:fontFamily="sans-serif-bold" />
-        </LinearLayout>
-        
-        <!-- Alerts Bubble -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/duolingo_pill_orange"
-            android:layout_marginStart="6dp"
-            android:gravity="center"
-            android:orientation="vertical">
-            <TextView android:id="@+id/status_text" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="OK" android:textColor="#E65100" android:textSize="24sp" android:fontFamily="sans-serif-black" android:singleLine="true"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="STATUS" android:textColor="#EF6C00" android:textSize="10sp" android:fontFamily="sans-serif-bold" />
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <!-- Info Section (Inventory & Door) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="45"
+        android:layout_height="match_parent"
+        android:background="@drawable/duolingo_bg"
         android:orientation="vertical"
-        android:layout_marginTop="4dp">
-        
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Inside now:" android:textColor="#004D40" android:textSize="14sp" android:fontFamily="sans-serif-bold" />
-            <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#D32F2F" android:textSize="14sp" android:fontFamily="sans-serif-black" />
+        android:padding="20dp"
+        android:weightSum="100">
+
+        <!-- Header Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="20"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_notif"
+                android:tint="#00BFA5"
+                android:layout_marginEnd="8dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="My Fridge!"
+                android:textColor="#004D40"
+                android:textSize="20sp"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="-0.02" />
         </LinearLayout>
 
-        <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#00695C" android:textSize="13sp" android:maxLines="2" android:ellipsize="end" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium"/>
-        
-        <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#E65100" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="6dp" android:fontFamily="sans-serif-bold"/>
-        
-        <!-- Hidden elements to satisfy provider binding requirements just in case -->
-        <TextView android:id="@+id/hum_value" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
-        <TextView android:id="@+id/freshness_value" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+        <!-- Metrics Section (Bubbles) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="35"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:layout_marginVertical="8dp">
+            
+            <!-- Temp Bubble -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/duolingo_pill_cyan"
+                android:layout_marginEnd="6dp"
+                android:gravity="center"
+                android:orientation="vertical">
+                <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#006064" android:textSize="28sp" android:fontFamily="sans-serif-black" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMP" android:textColor="#00838F" android:textSize="10sp" android:fontFamily="sans-serif-bold" />
+            </LinearLayout>
+            
+            <!-- Alerts Bubble -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/duolingo_pill_orange"
+                android:layout_marginStart="6dp"
+                android:gravity="center"
+                android:orientation="vertical">
+                <TextView android:id="@+id/status_text" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="OK" android:textColor="#E65100" android:textSize="24sp" android:fontFamily="sans-serif-black" android:singleLine="true"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="STATUS" android:textColor="#EF6C00" android:textSize="10sp" android:fontFamily="sans-serif-bold" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Info Section (Inventory & Door) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="45"
+            android:orientation="vertical"
+            android:layout_marginTop="4dp">
+            
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Inside now:" android:textColor="#004D40" android:textSize="14sp" android:fontFamily="sans-serif-bold" />
+                <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#D32F2F" android:textSize="14sp" android:fontFamily="sans-serif-black" />
+            </LinearLayout>
+
+            <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#00695C" android:textSize="13sp" android:maxLines="2" android:ellipsize="end" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium"/>
+            
+            <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#E65100" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="6dp" android:fontFamily="sans-serif-bold"/>
+
+            <!-- ⏲️ LIVE TIMER SECTION -->
+            <LinearLayout
+                android:id="@+id/timer_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/duolingo_pill_cyan"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp">
+                <TextView
+                    android:id="@+id/timer_title_text"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textColor="#004D40"
+                    android:textSize="12sp"
+                    android:fontFamily="sans-serif-black"
+                    android:text="TRACKING"/>
+                <Chronometer
+                    android:id="@+id/timer_countdown"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#006064"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:countDown="true"/>
+            </LinearLayout>
+
+            <!-- Hidden elements to satisfy provider binding requirements -->
+            <TextView android:id="@+id/hum_value" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+            <TextView android:id="@+id/freshness_value" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone"/>
+        </LinearLayout>
+
     </LinearLayout>
 
-</LinearLayout>
+    <!-- 🚨 BLINK OVERLAY (Visible for 5s on finish) -->
+    <!-- ⚠️ FIXED: Using ImageView instead of View to satisfy RemoteViews rules -->
+    <ViewFlipper
+        android:id="@+id/blink_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:autoStart="true"
+        android:flipInterval="500"
+        android:visibility="gone">
+        <!-- Frame 1: Empty -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent" />
+        <!-- Frame 2: Warning Red Tint -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66FF0000" />
+    </ViewFlipper>
+
+</FrameLayout>

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:ui';
+import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:convert';
 import 'dart:async';
@@ -33,6 +35,7 @@ import 'privacy_policy_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/fridge_customization_provider.dart';
+import '../providers/sensor_provider.dart'; // 🚀 Added
 import 'activity_screen.dart';
 import 'help_support_screen.dart';
 import 'theme_settings_screen.dart';
@@ -47,6 +50,7 @@ import '../services/icon_service.dart';
 import '../services/haptic_service.dart';
 import '../services/widget_service.dart'; // 🚀 Added
 import '../widgets/app_walkthrough.dart'; // 🎯
+import 'package:vibration/vibration.dart'; // 📳 Added for intense alerts
 
 class HomeScreen extends StatefulWidget {
   final int initialTab;
@@ -58,11 +62,12 @@ class HomeScreen extends StatefulWidget {
 
 enum AddFlowState { choice, scanner, manual }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<Fridge3DState> _fridgeKey = GlobalKey<Fridge3DState>();
   StreamSubscription<String?>? _notifSubscription; // 🔹 For deep links
+  StreamSubscription<String>? _emergencySubscription; // 🚨 For urgent alerts
   double? _swipeStartX; // 🔹 For swipe navigation tracking
   double _swipeDelta = 0; // 🔹 Track swipe distance
   
@@ -86,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<InventoryItem> inventory = [];
   bool _showWalkthrough = false; // 🎯
   List<WalkthroughStep> _currentWalkthroughSteps = []; // 🎯
+  final Set<String> _activeAlertItems = {}; // 🚨 Track items currently showing alerts
 
   //////////////////////////////////////////////////////////////
   // 🔹 INVENTORY ADD FLOW STATE
@@ -104,14 +110,17 @@ class _HomeScreenState extends State<HomeScreen> {
   // 🔹 PROFILE DATA
   //////////////////////////////////////////////////////////////
 
-  int gasLevel = 15;
-  double fridgeTemp = 3.5;
+  // 🛡️ DATA UNIFICATION: Multi-sensor state handled by SensorProvider
   String weatherTemp = "--";
   String weatherIcon = "01d";
   String timezone = "Loading...";
   InventoryItem? _selectedItemForDetails;
   bool _showChatbot = false; // Chatbot trigger
 
+  String? currentDeviceId; // 🆕 Track linked device serial
+  String? deviceName;
+  bool _isDeviceLoading = true;
+  
   String userName = "Loading...";
   String userEmail = "Loading...";
   String? profileImageUrl;
@@ -134,18 +143,196 @@ class _HomeScreenState extends State<HomeScreen> {
     _setupDeepLinking(); // 🔹 Handle notification taps
     _logAppOpen();
 
-    // 🔹 Start periodic expiry check every minute
+    // 🚨 Emergency Protocol: Listen for foreground timer expirations
+    _emergencySubscription = NotificationService.expiredTimerStream.stream.listen((itemName) {
+      _handleEmergency(itemName);
+    });
+
+    // 🔹 Start periodic expiry check & widget sync
+    _checkExpiryTimers(); 
+    _updateWidgetTimers(); 
     _expiryCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _checkExpiryTimers();
+      _updateWidgetTimers();
     });
 
     _checkInitialUnreadAlert();
+
+    WidgetsBinding.instance.addObserver(this);
 
     // 🎯 Walkthrough and Network Check
     Future.delayed(1.seconds, () {
       _checkWalkthrough();
       _checkNetworkChange();
     });
+  }
+
+  void _handleEmergency(String itemName) {
+    if (!mounted || _activeAlertItems.contains(itemName)) return;
+    
+    setState(() => _activeAlertItems.add(itemName));
+    
+    // 📳 Trigger Intense Vibration Loop
+    Vibration.vibrate(pattern: [500, 500, 500, 500], repeat: 0);
+
+    // 🔊 Play Urgent Audio Loop
+    AudioService.playUrgentAlert();
+
+    // 🖼️ Show Cinematic Dialog
+    _showEmergencyDialog(itemName);
+  }
+
+  void _showEmergencyDialog(String itemName) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.7),
+      transitionDuration: const Duration(milliseconds: 600),
+      pageBuilder: (context, anim1, anim2) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Material(
+              type: MaterialType.transparency,
+              child: Center(
+                child: Container(
+                  width: MediaQuery.of(context).size.width * 0.85,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.redAccent.withOpacity(0.15),
+                        blurRadius: 40,
+                        spreadRadius: 2,
+                      )
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 80)
+                        .animate(onPlay: (controller) => controller.repeat())
+                        .shake(duration: 800.ms, hz: 6)
+                        .scale(begin: const Offset(1.0, 1.0), end: const Offset(1.1, 1.1), curve: Curves.easeInOut)
+                        .then().scale(begin: const Offset(1.1, 1.1), end: const Offset(1.0, 1.0)),
+                      const SizedBox(height: 20),
+                      Text(
+                        "TIMER EXPIRED",
+                        style: GoogleFonts.orbitron(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                          decoration: TextDecoration.none, // Explicitly safe
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        "Protocol 🚨: $itemName",
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w400,
+                          decoration: TextDecoration.none, 
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              if (mounted) {
+                                Navigator.pop(context);
+                                setState(() => _activeAlertItems.remove(itemName));
+                              }
+                              HapticService.heavy();
+                              NotificationService().cancelAllForItem(itemName);
+                              Vibration.cancel();
+                              AudioService.stopUrgentAlert();
+                            },
+                            splashColor: Colors.white.withOpacity(0.3),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFFF3D00), Color(0xFFFF8A65)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withOpacity(0.4),
+                                    blurRadius: 15,
+                                    offset: const Offset(0, 8),
+                                  )
+                                ],
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  "DISMISS ALERT",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.5,
+                                    fontSize: 15,
+                                    decoration: TextDecoration.none,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fadeIn(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// ⏲️ Sync active timers to the Android Home Screen Chrono widget
+  void _updateWidgetTimers() {
+    try {
+      final now = DateTime.now().toUtc();
+      
+      // 🎯 Prioritize items with manual reminders or early expiries
+      final activeTimers = inventory.where((item) {
+        final targetDate = item.reminderDate ?? item.expiryDate;
+        return targetDate.toUtc().isAfter(now) && targetDate.toUtc().difference(now).inHours <= 168; // 7 Day Window
+      }).toList();
+
+      // 🕒 Sort by earliest timer first
+      activeTimers.sort((a, b) {
+        final dateA = a.reminderDate ?? a.expiryDate;
+        final dateB = b.reminderDate ?? b.expiryDate;
+        return dateA.compareTo(dateB);
+      });
+
+      final timerList = activeTimers.map((item) {
+        final targetDate = item.reminderDate ?? item.expiryDate;
+        return {
+          "name": item.name,
+          "target": targetDate.toUtc().millisecondsSinceEpoch,
+        };
+      }).toList();
+
+      WidgetService.updateTimerListWidget(jsonEncode(timerList));
+    } catch (e) {
+      debugPrint("❌ SMRIDGE WIDGET Error: $e");
+    }
   }
 
   Future<void> _checkNetworkChange() async {
@@ -194,12 +381,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _expiryCheckTimer?.cancel(); // 🔹 Clean up timer
-    _notifSubscription?.cancel(); // 🔹 Clean up stream
+    WidgetsBinding.instance.removeObserver(this);
+    _expiryCheckTimer?.cancel(); 
+    _notifSubscription?.cancel(); 
+    _emergencySubscription?.cancel();
+    AudioService.stopUrgentAlert();
+    Vibration.cancel();
     SocketService.off('inventory_update');
     SocketService.off('sensor_data');
     SocketService.off('notification_update');
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print("🚀 App Resumed: Syncing timers and notifications...");
+      _checkExpiryTimers();
+      _fetchNotificationsCount();
+    }
   }
 
   // 🚀 Notification Deep Linking Logic
@@ -318,10 +518,18 @@ class _HomeScreenState extends State<HomeScreen> {
           if (id.isNotEmpty && !shownNotifIds.contains(id)) {
             // New unread notification! Show it in the shade
             final String type = (n['type'] ?? '').toString().toLowerCase();
+            
+            // 🛡️ DEDUPLICATION: Skip expiry/reminder notifications here 
+            // as they are handled by the specialized Timer logic or direct FCM
+            if (type == 'expiry' || type == 'reminder') {
+              shownNotifIds.add(id);
+              continue;
+            }
+
             await NotificationService().showNotification(
               n['title'] ?? "Smridge Alert",
               n['message'] ?? "",
-              colorHex: type == 'expiry' ? '#FF007A' : '#00F2FF',
+              colorHex: type == 'critical' ? '#FF007A' : '#00F2FF',
               context: context,
             );
             shownNotifIds.add(id);
@@ -377,37 +585,29 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    // Listen for real-time sensor data
+    // 🧬 DATA UNIFICATION: Sensor data is now handled centrally by SensorProvider
+    // but we still sync it to the Home Widget here to ensure background consistency
     SocketService.on('sensor_data', (data) {
-      if (mounted) {
-        setState(() {
-          // Robust parsing using tryParse to avoid "String is not a subtype of num"
-          final rawGas = data['gasLevel']?.toString() ?? "0";
-          final rawTemp = data['temperature']?.toString() ?? "0";
-          gasLevel = int.tryParse(rawGas) ?? 0;
-          fridgeTemp = double.tryParse(rawTemp) ?? 0.0;
-        });
+       if (mounted) {
+         final sensor = context.read<SensorProvider>();
+         final isCritical = sensor.temperature > 5.0 || sensor.gasLevel > 200 || (sensor.freshnessScore / 100.0) < 0.3;
+         
+         if (isCritical) {
+            IconService.updateToCriticalIcon();
+         } else {
+            IconService.updateToNormalIcon();
+         }
 
-        // 📡 Sync to Home Screen Widget
-        final isCritical = fridgeTemp > 5.0 || gasLevel > 200 || _computeFreshness() < 0.3;
-        
-        // 🔄 Dynamic App Icon Switching
-        if (isCritical) {
-           IconService.updateToCriticalIcon();
-        } else {
-           IconService.updateToNormalIcon();
-        }
-
-        WidgetService.updateWidgetData(
-          temperature: fridgeTemp,
-          humidity: double.tryParse(data['humidity']?.toString() ?? "0") ?? 0.0,
-          freshness: _computeFreshness(),
-          doorStatus: (data['doorOpen'] == true) ? "OPEN" : "CLOSED",
-          status: isCritical ? "CRITICAL" : "OPTIMAL",
-          inventoryJson: jsonEncode(inventory.map((i) => i.name).toList()),
-          notificationsJson: jsonEncode(["$unreadNotifications Unread ALERTS"]),
-        );
-      }
+         WidgetService.updateWidgetData(
+           temperature: sensor.temperature,
+           humidity: sensor.humidity,
+           freshness: sensor.freshnessScore / 100.0,
+           doorStatus: sensor.doorStatus ?? "CLOSED",
+           status: isCritical ? "CRITICAL" : "OPTIMAL",
+           inventoryJson: jsonEncode(inventory.map((i) => i.name).toList()),
+           notificationsJson: jsonEncode(["$unreadNotifications Unread ALERTS"]),
+         );
+       }
     });
 
     // 🔹 Listen for notification updates to sync badge count
@@ -417,19 +617,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  double _computeFreshness() {
-    if (inventory.isEmpty) return 1.0;
-    final now = DateTime.now(); // 🔹 Uses Device Clock
-    double totalFreshness = 0;
-    for (var item in inventory) {
-       final localExpiry = item.expiryDate.toLocal();
-       final days = localExpiry.difference(now).inDays;
-       if (days > 14) totalFreshness += 1.0;
-       else if (days > 0) totalFreshness += (days / 14.0);
-       else totalFreshness += 0.0;
-    }
-    return totalFreshness / inventory.length;
-  }
+  // 🧬 DATA UNIFICATION: Logic removed in favor of SensorProvider
 
   void _addFood() {
     setState(() {
@@ -461,9 +649,46 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _checkExpiryTimers() {
     if (inventory.isEmpty) return;
+    
+    InventoryItem? nearestItem;
+    DateTime? nearestTime;
+    final now = DateTime.now();
+
     for (var item in inventory) {
        final stableId = (item.id.hashCode.abs()) % 100000;
-       NotificationService().showCountdownNotification(item.name, item.expiryDate.toLocal(), itemId: stableId);
+       final localExpiry = item.expiryDate.toLocal();
+       
+       // ⏲️ AUTOMATIC LIVE TIMER: Show tracker if within 72 hours (3 days)
+       if (localExpiry.difference(now).inHours <= 72) {
+         NotificationService().showCountdownNotification(item.name, localExpiry, itemId: stableId);
+       }
+       
+       // Track nearest for Widget
+       final itemTarget = (item.reminderDate != null && item.reminderDate!.toLocal().isAfter(now)) 
+           ? item.reminderDate!.toLocal() 
+           : localExpiry;
+           
+       if (itemTarget.isAfter(now)) {
+         if (nearestTime == null || itemTarget.isBefore(nearestTime)) {
+           nearestTime = itemTarget;
+           nearestItem = item;
+         }
+       }
+    }
+
+    // 📡 SYNC NEAREST TIMER TO WIDGETS
+    if (nearestItem != null && nearestTime != null) {
+      final sensor = context.read<SensorProvider>();
+      final isCritical = sensor.temperature > 5.0 || sensor.gasLevel > 200 || (sensor.freshnessScore / 100.0) < 0.3;
+      WidgetService.updateWidgetData(
+        temperature: sensor.temperature,
+        humidity: sensor.humidity,
+        freshness: sensor.freshnessScore / 100.0,
+        doorStatus: sensor.doorStatus ?? "CLOSED",
+        status: isCritical ? "CRITICAL" : "OPTIMAL",
+        timerTitle: nearestItem.name,
+        targetTimestamp: nearestTime.millisecondsSinceEpoch,
+      );
     }
   }
 
@@ -475,13 +700,27 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           userName = profile['name'] ?? "Smridge User";
           userEmail = profile['email'] ?? "user@email.com";
+          
+          // 🆕 Extract Device Info (Populated ObjectId from Backend)
+          if (profile['deviceId'] != null) {
+            final dev = profile['deviceId'];
+            if (dev is Map) {
+              currentDeviceId = dev['deviceId'];
+              deviceName = dev['name'];
+            }
+          }
+          
           final rawImg = profile['profileImage'];
           if (rawImg != null && rawImg.isNotEmpty) {
             profileImageUrl = rawImg.startsWith('http') ? rawImg : "${ApiService.baseDomain}/uploads/$rawImg";
           } else {
             profileImageUrl = null;
           }
+          _isDeviceLoading = false;
         });
+        
+        // 🔄 Always fetch latest data (Backend now resolves by User ID)
+        _fetchLatestDeviceData();
       } else if (mounted) {
         setState(() {
           userName = "Session Expired";
@@ -494,6 +733,24 @@ class _HomeScreenState extends State<HomeScreen> {
           userName = "Guest User";
           userEmail = "Please login via settings";
         });
+      }
+    }
+  }
+
+  Future<void> _fetchLatestDeviceData() async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) return;
+    
+    final data = await ApiService.getLatestSensorData(currentDeviceId ?? 'auto', token);
+    if (data != null && mounted) {
+      // 🚀 Sync to centralized provider
+      final sensorProv = context.read<SensorProvider>();
+      sensorProv.updateFromData(data);
+      
+      // 📊 Also preload history for the Sparkline
+      final trendData = await ApiService.getTemperatureTrend(token);
+      if (trendData.isNotEmpty) {
+        sensorProv.setInitialHistory(trendData);
       }
     }
   }
@@ -904,6 +1161,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       child: Scaffold(
         key: _scaffoldKey,
+        resizeToAvoidBottomInset: false, // 🛠️ Prevents dock shifting when keyboard opens
       backgroundColor: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : const Color(0xFF050B12)),
 
       ////////////////////////////////////////////////////////////
@@ -1235,10 +1493,10 @@ class _HomeScreenState extends State<HomeScreen> {
           // BOTTOM DOCK
           //////////////////////////////////////////////////////////
 
-          // Dock shows on tabs 0,1,2 (main fridge screens). Swipe handles 0-4 but add/notifications have their own dock logic.
+          // Dock shows on tabs 0-10. Hide only during scanner or when keyboard is open.
           if (selectedTab <= 10 &&
               _addFlowState != AddFlowState.scanner &&
-              !_showWalkthrough)
+              MediaQuery.of(context).viewInsets.bottom == 0)
             Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 10,
             left: 20,

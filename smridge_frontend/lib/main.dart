@@ -17,6 +17,7 @@ import 'services/haptic_service.dart'; // 🔹 New
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
 import 'providers/connectivity_provider.dart';
+import 'providers/sensor_provider.dart'; // 🚀 Added
 import 'config/app_themes.dart';
 import 'config/app_settings.dart';
 
@@ -96,6 +97,7 @@ void main() async {
           return provider;
         }),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
+        ChangeNotifierProvider(create: (_) => SensorProvider()), // 🚀 Added
       ],
       child: const SmridgeApp(),
     ),

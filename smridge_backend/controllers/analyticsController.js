@@ -5,8 +5,9 @@ const NotificationModel = require("../models/Notification");
 // 🟢 Get Temperature Trends
 exports.getTemperatureAnalytics = async (req, res) => {
     try {
-        // Fetch last 50 sensor readings, sort by newest
-        const rawData = await SensorData.find().sort({ timestamp: -1 }).limit(50);
+        const userId = req.user.id;
+        // Fetch last 50 sensor readings for THIS user only, sort by newest
+        const rawData = await SensorData.find({ userId }).sort({ timestamp: -1 }).limit(50);
 
         // Sort oldest first for frontend graphing
         const data = rawData.reverse();

@@ -1,65 +1,128 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/premium_bg"
-    android:orientation="vertical"
-    android:padding="20dp"
-    android:weightSum="100">
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="15"
-        android:text="> SMRIDGE OS // v3.0 // ACTIVE"
-        android:textColor="#8000F2FF"
-        android:textSize="10sp"
-        android:fontFamily="monospace"
-        android:textStyle="bold"
-        android:letterSpacing="0.1" />
+    android:layout_height="match_parent">
 
     <LinearLayout
+        android:id="@+id/widget_root"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="35"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
-        
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[TEMP]" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
-            <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
-        </LinearLayout>
-        
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[HUM]" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
-            <TextView android:id="@+id/hum_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
+        android:layout_height="match_parent"
+        android:background="@drawable/premium_bg"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:weightSum="100">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="15"
+            android:text="> SMRIDGE OS // v3.0 // ACTIVE"
+            android:textColor="#8000F2FF"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold"
+            android:letterSpacing="0.1" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="35"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+            
+            <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[TEMP]" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/temp_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
+            </LinearLayout>
+            
+            <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[HUM]" android:textColor="#66FFFFFF" android:textSize="9sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/hum_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FFFFFF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[FRESH]" android:textColor="#00F2FF" android:textSize="9sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/freshness_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#00F2FF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
+            </LinearLayout>
         </LinearLayout>
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="left|center_vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[FRESH]" android:textColor="#00F2FF" android:textSize="9sp" android:fontFamily="monospace" />
-            <TextView android:id="@+id/freshness_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#00F2FF" android:textSize="28sp" android:textStyle="bold" android:fontFamily="sans-serif" />
+        <ImageView android:layout_width="match_parent" android:layout_height="1dp" android:background="#33FFFFFF" android:layout_marginTop="8dp" android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="50"
+            android:orientation="vertical">
+            
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[ST]" android:textColor="#66FFFFFF" android:textSize="10sp" android:fontFamily="monospace" />
+                <TextView android:id="@+id/status_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#00F2FF" android:textSize="10sp" android:fontFamily="monospace" android:singleLine="true" android:layout_marginStart="8dp"/>
+                <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="10sp" android:fontFamily="monospace" android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="[INVENTORY]" android:textColor="#00F2FF" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginTop="8dp"/>
+            <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" android:fontFamily="monospace" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="[ALERTS]" android:textColor="#FF007A" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginTop="6dp"/>
+            <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#CCCCCC" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" android:fontFamily="monospace" />
+
+            <!-- ⏲️ LIVE TIMER SECTION -->
+            <LinearLayout
+                android:id="@+id/timer_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="[TMR]"
+                    android:textColor="#66FFFFFF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"/>
+                <TextView
+                    android:id="@+id/timer_title_text"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textColor="#00F2FF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginStart="8dp"
+                    android:singleLine="true"/>
+                <Chronometer
+                    android:id="@+id/timer_countdown"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:countDown="true"/>
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
-    <ImageView android:layout_width="match_parent" android:layout_height="1dp" android:background="#33FFFFFF" android:layout_marginTop="8dp" android:layout_marginBottom="8dp" />
-
-    <LinearLayout
+    <!-- 🚨 BLINK OVERLAY (Visible for 5s on finish) -->
+    <!-- ⚠️ FIXED: Using ImageView instead of View to satisfy RemoteViews rules -->
+    <ViewFlipper
+        android:id="@+id/blink_overlay"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="50"
-        android:orientation="vertical">
-        
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="[ST]" android:textColor="#66FFFFFF" android:textSize="10sp" android:fontFamily="monospace" />
-            <TextView android:id="@+id/status_text" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#00F2FF" android:textSize="10sp" android:fontFamily="monospace" android:singleLine="true" android:layout_marginStart="8dp"/>
-            <TextView android:id="@+id/door_value" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#FF007A" android:textSize="10sp" android:fontFamily="monospace" android:textStyle="bold" />
-        </LinearLayout>
+        android:layout_height="match_parent"
+        android:autoStart="true"
+        android:flipInterval="500"
+        android:visibility="gone">
+        <!-- Frame 1: Empty -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent" />
+        <!-- Frame 2: Warning Red Tint -->
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66FF0000" />
+    </ViewFlipper>
 
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="[INVENTORY]" android:textColor="#00F2FF" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginTop="8dp"/>
-        <TextView android:id="@+id/inventory_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="12sp" android:maxLines="2" android:ellipsize="end" android:fontFamily="monospace" />
-
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="[ALERTS]" android:textColor="#FF007A" android:textSize="10sp" android:fontFamily="monospace" android:layout_marginTop="6dp"/>
-        <TextView android:id="@+id/notifications_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#CCCCCC" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" android:fontFamily="monospace" />
-    </LinearLayout>
-</LinearLayout>
+</FrameLayout>

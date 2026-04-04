@@ -5,6 +5,9 @@ const cloudinary = require("../config/cloudinaryConfig");
 const { calculateFreshness } = require("../utils/freshnessUtils");
 const socketManager = require("../utils/socketManager");
 const logActivity = require("../utils/activityLogger");
+const sensorService = require("../utils/sensorService");
+const activityState = require("../utils/activityState");
+const { createAndSendAlert } = require("../utils/notificationUtils");
 
 
 // 🟢 Add Item with Image
@@ -16,6 +19,13 @@ exports.addItem = async (req, res) => {
     if (req.file) console.log("Cloudinary Path:", req.file.path);
 
     const { name, quantity, expiryDate, category, packaged, weight, litres, barcode, brand, expirySource, notes, imageUrl, reminderDate } = req.body;
+
+    // ⚖️ Fetch Current Sensor Weight for Recording
+    const liveSensors = await sensorService.getCurrentSensors();
+    const currentSensorWeight = liveSensors.weight || 0;
+    
+    // Mark this addition to suppress generic weight alerts
+    activityState.markAppAddition(req.user.id);
 
     // --- EXPIRY DATE ESTIMATOR ---
     let finalExpiryDate = expiryDate;
@@ -82,7 +92,7 @@ exports.addItem = async (req, res) => {
       category: category || "Others",
       packaged: packaged === 'true' || packaged === true,
       quantity: quantity ? parseInt(quantity) : 1,
-      weight: weight ? parseFloat(weight) : 0,
+      weight: weight ? parseFloat(weight) : currentSensorWeight, // Use sensor weight if not provided
       litres: litres ? parseFloat(litres) : 0,
       barcode: barcode || null,
       brand: brand || null,
@@ -104,6 +114,18 @@ exports.addItem = async (req, res) => {
 
     // 🔹 Emit Socket Event
     socketManager.emitEvent("inventory_update", { action: "add", item });
+
+    // 🔔 Alert User: Item Added
+    const currentUser = await (require("../models/User")).findById(req.user.id);
+    if (currentUser) {
+      await createAndSendAlert(
+        currentUser,
+        "inventory",
+        "Item Added to Inventory",
+        `Item '${item.name}' has been added to the inventory.`,
+        "#4CAF50"
+      );
+    }
 
     res.status(201).json(item);
 
