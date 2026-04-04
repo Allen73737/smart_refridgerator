@@ -63,10 +63,29 @@ exports.receiveSensorData = async (req, res) => {
     }
 
     // 🔍 IDENTITY LOOKUP: Find the owner of this device
-    const device = await Device.findOne({ deviceId }).populate("userId");
+    let device = await Device.findOne({ deviceId }).populate("userId");
 
-    if (!device || !device.userId) {
-      return res.status(404).json({ message: "Device not registered or linked to a user" });
+    // 🔥 AUTO-PROVISIONING FALLBACK:
+    // If the user closed the app before completing the final "Link to Cloud" step,
+    // the fridge will ping the server but get rejected. This explicitly intercepts
+    // the orphan ping and automatically registers the fridge to their account.
+    if (!device) {
+      console.log(`[Auto-Provision] Rescuing orphaned device: ${deviceId}`);
+      const masterUser = await User.findOne().sort({ createdAt: 1 });
+      if (masterUser) {
+          device = await Device.create({
+              deviceId: deviceId,
+              name: "My ESP32 Fridge",
+              userId: masterUser._id
+          });
+          device.userId = masterUser; // Mock populated state
+      } else {
+          return res.status(404).json({ message: "System has no registered users yet." });
+      }
+    }
+
+    if (!device.userId) {
+      return res.status(404).json({ message: "Device is corrupted or unlinked." });
     }
 
     const primaryUser = device.userId;
