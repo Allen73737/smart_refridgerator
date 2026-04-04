@@ -31,8 +31,17 @@ exports.receiveSensorData = async (req, res) => {
   try {
     let { deviceId, temperature, humidity, gasLevel, weight, doorStatus } = req.body;
 
+    // 🔥 BACKWARDS-COMPATIBILITY HOTFIX:
+    // The user's actual physical ESP32 firmware from March does not send a deviceId.
+    // We must intercept this and give it a dummy ID instead of throwing a 400 error,
+    // otherwise the backend will drop all legacy hardware!
+    if (!deviceId) {
+      deviceId = "LEGACY_ESP32_001";
+      console.log("⚠️ Received payload with no deviceId! Tagging as LEGACY_ESP32_001.");
+    }
+
     // Basic validation
-    if (!deviceId || temperature === undefined || humidity === undefined) {
+    if (temperature === undefined || humidity === undefined) {
       return res.status(400).json({ message: "Missing core sensor fields (temperature, humidity)" });
     }
 
