@@ -111,7 +111,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     });
 
     try {
-      final url = Uri.parse('http://192.168.4.1/connect?ssid=${Uri.encodeComponent(ssid)}&password=${Uri.encodeComponent(pass)}');
+      final url = Uri.parse('http://192.168.4.1/save?ssid=${Uri.encodeComponent(ssid)}&password=${Uri.encodeComponent(pass)}');
       
       // ESP32 WebServer is notoriously picky. Manually format the x-www-form-urlencoded string.
       final String rawBody = 'ssid=${Uri.encodeComponent(ssid)}&password=${Uri.encodeComponent(pass)}';
@@ -119,18 +119,18 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
       var response = await http.post(
         url,
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded', // STRIPPED of charset=utf-8
+          'Content-Type': 'application/x-www-form-urlencoded',
           'Content-Length': rawBody.length.toString(),
         },
         body: rawBody,
       ).timeout(const Duration(seconds: 10));
 
-      // 🔄 If ESP32 returns 404 to POST, it means the firmware was compiled expecting GET
+      // 🔄 Fallback just in case
       if (response.statusCode == 404) {
         response = await http.get(url).timeout(const Duration(seconds: 5));
       }
 
-      if (response.statusCode == 200 && response.body.contains('saved')) {
+      if (response.statusCode == 200 && response.body.toLowerCase().contains('saved')) {
         SnackbarUtils.showSuccess(context, "Credentials sent! ESP32 is restarting.");
         _nextStep(); // Move to reconnectHomeWifi
       } else {
@@ -303,7 +303,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         ),
         const SizedBox(height: 16),
         Text(
-          "1. Turn OFF your Mobile Data.\n2. Open your phone's Wi-Fi settings.\n3. Connect to the network: SMRIDGE_SETUP\n4. Password is: 12345678\n5. Wait for 'Connected' status, then return here.",
+          "1. Turn OFF your Mobile Data.\n2. Open your phone's Wi-Fi settings.\n3. Connect to the network: SmartFridge\n4. Password is: 12345678\n5. Wait for 'Connected' status, then return here.",
           textAlign: TextAlign.left,
           style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14, height: 1.5),
         ),

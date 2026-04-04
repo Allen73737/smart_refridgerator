@@ -101,7 +101,9 @@ exports.getCurrentSensors = async () => {
 
 /**
  * 🕒 PERSISTENCE LOOP: Saves data to DB every 30s.
+ * (DISABLED AS PER USER REQUEST TO ENSURE PURE HARDWARE TESTING)
  */
+/*
 setInterval(async () => {
     const now = Date.now();
     const sensors = await exports.getCurrentSensors();
@@ -123,3 +125,4 @@ setInterval(async () => {
         }
     }
 }, 30000);
+*/
