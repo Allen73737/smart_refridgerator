@@ -111,25 +111,33 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('http://192.168.4.1/connect'),
+      final url = Uri.parse('http://192.168.4.1/connect?ssid=${Uri.encodeComponent(ssid)}&password=${Uri.encodeComponent(pass)}');
+      
+      // ESP32 WebServer is notoriously picky. Manually format the x-www-form-urlencoded string.
+      final String rawBody = 'ssid=${Uri.encodeComponent(ssid)}&password=${Uri.encodeComponent(pass)}';
+
+      var response = await http.post(
+        url,
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/x-www-form-urlencoded', // STRIPPED of charset=utf-8
+          'Content-Length': rawBody.length.toString(),
         },
-        body: {
-          'ssid': ssid,
-          'password': pass,
-        },
+        body: rawBody,
       ).timeout(const Duration(seconds: 10));
+
+      // 🔄 If ESP32 returns 404 to POST, it means the firmware was compiled expecting GET
+      if (response.statusCode == 404) {
+        response = await http.get(url).timeout(const Duration(seconds: 5));
+      }
 
       if (response.statusCode == 200 && response.body.contains('saved')) {
         SnackbarUtils.showSuccess(context, "Credentials sent! ESP32 is restarting.");
         _nextStep(); // Move to reconnectHomeWifi
       } else {
-        SnackbarUtils.showError(context, "Failed to provision. Check device connection.");
+        SnackbarUtils.showError(context, "ESP32 Error [${response.statusCode}]: ${response.body}");
       }
     } catch (e) {
-      SnackbarUtils.showError(context, "Could not reach device. Are you connected to SMRIDGE_SETUP?");
+      SnackbarUtils.showError(context, "Cannot reach fridge. Please turn OFF your Mobile Data/Cellular completely and try again.");
     } finally {
       setState(() {
         _isProvisioning = false;
@@ -295,9 +303,9 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         ),
         const SizedBox(height: 16),
         Text(
-          "1. Open your phone's Wi-Fi settings.\n2. Connect to the network: SMRIDGE_SETUP\n3. Password is: 12345678\n4. Return to this app.",
+          "1. Turn OFF your Mobile Data.\n2. Open your phone's Wi-Fi settings.\n3. Connect to the network: SMRIDGE_SETUP\n4. Password is: 12345678\n5. Wait for 'Connected' status, then return here.",
           textAlign: TextAlign.left,
-          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 15, height: 1.5),
+          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14, height: 1.5),
         ),
         const SizedBox(height: 32),
         SizedBox(

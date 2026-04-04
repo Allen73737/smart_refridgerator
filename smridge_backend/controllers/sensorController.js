@@ -32,16 +32,14 @@ exports.receiveSensorData = async (req, res) => {
     let { deviceId, temperature, humidity, gasLevel, weight, doorStatus } = req.body;
 
     // Basic validation
-    if (
-      !deviceId ||
-      temperature === undefined ||
-      humidity === undefined ||
-      gasLevel === undefined ||
-      weight === undefined ||
-      doorStatus === undefined
-    ) {
-      return res.status(400).json({ message: "Missing sensor fields" });
+    if (!deviceId || temperature === undefined || humidity === undefined) {
+      return res.status(400).json({ message: "Missing core sensor fields (temperature, humidity)" });
     }
+
+    // Set fallback defaults if ESP32 firmware omitted the advanced metrics
+    gasLevel = gasLevel !== undefined ? gasLevel : 0;
+    weight = weight !== undefined ? weight : 0;
+    doorStatus = doorStatus !== undefined ? doorStatus : "closed";
 
     // Convert to proper numeric types
     deviceId = String(deviceId).trim().toUpperCase();
