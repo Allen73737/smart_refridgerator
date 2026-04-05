@@ -119,10 +119,10 @@ exports.receiveSensorData = async (req, res) => {
       gasLevel,
       weight, // Pass raw weight for calibration
       doorStatus
-    }, deviceId);
+    }, deviceId, primaryUser._id);
 
     // Get the newly calibrated weight and event
-    const liveSensors = await sensorService.getCurrentSensors();
+    const liveSensors = await sensorService.getCurrentSensors(primaryUser._id);
     const calibratedWeight = liveSensors.weight;
     const weightEvent = liveSensors.event;
 
@@ -151,20 +151,21 @@ exports.receiveSensorData = async (req, res) => {
 
     // Emit real-time socket event (TARGETED to owner only)
     socketManager.emitToUser(primaryUser._id, "sensor_data", {
-      temperature,
-      humidity,
+      temperature: temperature,
+      humidity: humidity,
       gasLevel,
-      weight: calibratedWeight, 
-      doorStatus,
-      weightEvent,
+      weight: calibratedWeight,
       doorOpen: doorStatus === "open",
+      doorStatus: doorStatus,
+      freshnessScore: freshness_score,
       calculatedFreshness: freshness_score,
-      status,
-      alert,
-      alert_type,
-      message,
+      status: status,
+      alert: alert,
+      alert_type: alert_type,
+      message: message,
       scores,
-      isReal: true
+      isReal: true,
+      timestamp: new Date()
     });
 
     // Respond to ESP32 immediately
@@ -271,15 +272,15 @@ exports.receiveSensorData = async (req, res) => {
         );
       }
 
-      // ⚖️ WEIGHT ADDITION ALERT (GENERIC)
+      // ⚖️ WEIGHT ADDITION ALERT (Dual-Channel)
       if (weightEvent === "added") {
         const recentlyAdded = activityState.wasRecentlyAddedViaApp(primaryUser._id);
         if (!recentlyAdded) {
           createAndSendAlert(
             primaryUser,
             "inventory",
-            "Weight Increase Detected",
-            `Weight detected! Looks like you added something (${calibratedWeight}g). Tap to register it.`,
+            "Weight Added: ${calibratedWeight}g",
+            `A new weight of ${calibratedWeight}g was detected. Tap to register the item! 🧊`,
             "#4CAF50",
             {
               route: '/add_inventory',
@@ -287,6 +288,18 @@ exports.receiveSensorData = async (req, res) => {
             }
           );
         }
+      }
+
+      // ⚖️ WEIGHT REMOVAL ALERT (Dual-Channel)
+      if (weightEvent === "removed") {
+          const removedWeight = Math.round(Math.abs(calibratedWeight - (previousState?.weight ?? calibratedWeight)));
+          createAndSendAlert(
+            primaryUser,
+            "inventory",
+            "Item Removed",
+            `Something was just removed from the fridge! Weight decreased by ${removedWeight}g. 🧊`,
+            "#FF9800"
+          );
       }
 
       if (humidity > 80) {
@@ -331,13 +344,14 @@ exports.receiveSensorData = async (req, res) => {
   }
 };
 
-// 🟢 Get Latest Sensor Data for specific User (Ensures 100% Parity with Analytics)
+// 🟢 Get Latest Sensor Data for specific User (Ensures 100% Parity with AI & Analytics)
 exports.getLatestSensorData = async (req, res) => {
   try {
     const userId = req.user.id;
-    const latest = await SensorData.findOne({ userId })
-      .sort({ timestamp: -1 })
-      .lean();
+    
+    // 🧠 UNIFIED SYNC: Use the same service the AI and Sockets use. 
+    // This handles DB Fallback + Simulation Drift + Real Telemetry.
+    const latest = await sensorService.getCurrentSensors(userId);
 
     if (!latest) {
       return res.status(404).json({ message: "No sensor data found for this account" });

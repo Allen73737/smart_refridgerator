@@ -506,7 +506,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                   child: Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -692,7 +692,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                 notes: notesController.text, // 👈 Added (was missing notes too!)
                                 dateAdded: widget.existingItem?.dateAdded ?? DateTime.now(),
                               );
-                              widget.onSave(item);
+                              widget.onSave?.call(item);
                             },
                             child: Text(
                               widget.existingItem == null ? "Save Inventory" : "Update Changes",

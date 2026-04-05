@@ -14,6 +14,7 @@ class AppSettings {
   static double adminMaxHumidity = 95;
   static double adminMinFreshness = 0;
   static double adminMaxFreshness = 100;
+  static bool isSimulationEnabled = false;
 
   /// Fetch admin-defined threshold ranges from backend
   static Future<void> fetchAdminThresholds() async {
@@ -31,6 +32,7 @@ class AppSettings {
         adminMaxHumidity = (data['maxHumidity'] ?? 95).toDouble();
         adminMinFreshness = (data['minFreshness'] ?? 0).toDouble();
         adminMaxFreshness = (data['maxFreshness'] ?? 100).toDouble();
+        isSimulationEnabled = data['isSimulationEnabled'] ?? false;
 
         // Enforce: if current values are outside admin bounds, clamp them
         temperatureThreshold = temperatureThreshold.clamp(adminMinTemperature, adminMaxTemperature);

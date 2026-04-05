@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/haptic_service.dart';
+import '../services/notification_service.dart';
 
 class SmridgeTimerOverlay extends StatefulWidget {
   final Duration duration;
@@ -35,6 +36,10 @@ class _SmridgeTimerOverlayState extends State<SmridgeTimerOverlay> {
   }
 
   void _startTimer() {
+    // 🔔 SYNC TO DEVICE NOTIFICATION SHADE
+    final expiryTime = DateTime.now().add(widget.duration);
+    NotificationService().showLiveTimer(widget.title, expiryTime);
+
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_secondsRemaining > 0) {
         setState(() => _secondsRemaining--);
@@ -48,6 +53,8 @@ class _SmridgeTimerOverlayState extends State<SmridgeTimerOverlay> {
 
   void _handleFinish() {
     HapticService.heavy();
+    // 🔔 Cancel notification when finished
+    NotificationService().cancelAllForItem(widget.title);
     Future.delayed(1.seconds, () {
       if (mounted) widget.onFinish();
     });
@@ -86,7 +93,7 @@ class _SmridgeTimerOverlayState extends State<SmridgeTimerOverlay> {
     double progress = _secondsRemaining / _initialSeconds;
 
     return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
       child: Center(
         child: Container(
           width: 300,
@@ -168,6 +175,7 @@ class _SmridgeTimerOverlayState extends State<SmridgeTimerOverlay> {
               GestureDetector(
                 onTap: () {
                   _timer?.cancel();
+                  NotificationService().cancelAllForItem(widget.title);
                   widget.onFinish();
                 },
                 child: Container(

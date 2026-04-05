@@ -74,10 +74,10 @@ class _StatusMetricsState
           child: ClipRRect(
             borderRadius: BorderRadius.circular(24),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
               child: AnimatedBuilder(
                 animation: pulseController,
-                builder: (_, child) {
+                builder: (_, __) {
                   bool danger = isTempDanger(temperature) || isHumidityDanger(humidity) || isFreshDanger(freshness);
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -107,13 +107,9 @@ class _StatusMetricsState
                           ),
                       ],
                     ),
-                    child: child,
-                  );
-                },
-                child: RepaintBoundary(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Row(
                           children: [
                             Container(
@@ -140,7 +136,6 @@ class _StatusMetricsState
                                       letterSpacing: 2,
                                     ),
                                   ),
-                                  // 🚀 SIMULATION MODE BADGE REMOVED
                                 ],
                               ),
                             ),
@@ -179,74 +174,18 @@ class _StatusMetricsState
                             icon: Icons.door_front_door_outlined,
                             isLight: isLight),
                         
-                        // 🌊 MINI ANALYTICS SPARKLINE
-                        if (sensor.tempHistory.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      "TREND (24H)", 
-                                      style: GoogleFonts.orbitron(
-                                        color: isLight ? Colors.black38 : Colors.white38, 
-                                        fontSize: 8, 
-                                        letterSpacing: 1
-                                      )
-                                    ),
-                                    Text(
-                                      sensor.tempHistory.length > 1 && (sensor.tempHistory.last - sensor.tempHistory[sensor.tempHistory.length - 2]).abs() < 0.2
-                                        ? "STABLE"
-                                        : "FLUCTUATING",
-                                      style: GoogleFonts.orbitron(
-                                        color: Colors.tealAccent.withOpacity(0.5), 
-                                        fontSize: 8
-                                      )
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  height: 30,
-                                  child: LineChart(
-                                    LineChartData(
-                                      gridData: const FlGridData(show: false),
-                                      titlesData: const FlTitlesData(show: false),
-                                      borderData: FlBorderData(show: false),
-                                      lineBarsData: [
-                                        LineChartBarData(
-                                          spots: sensor.tempHistory.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
-                                          isCurved: true,
-                                          color: Colors.tealAccent.withOpacity(0.6),
-                                          barWidth: 2,
-                                          isStrokeCapRound: true,
-                                          dotData: const FlDotData(show: false),
-                                          belowBarData: BarAreaData(
-                                            show: true,
-                                            color: Colors.tealAccent.withOpacity(0.1),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        const SizedBox(height: 12),
                       ],
                     ),
-                  ),
-                ),
+                  );
+                },
+              ),
               ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   Color getFreshnessColor(double value) {
     if (value >= 70) return Colors.greenAccent;
@@ -277,6 +216,14 @@ class _StatusMetricsState
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        Text(
+          "${freshness.toStringAsFixed(0)}% ", 
+          style: GoogleFonts.outfit(
+            color: activeColor,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         buildDot(Colors.greenAccent),
         buildDot(Colors.yellow),
         buildDot(Colors.red),

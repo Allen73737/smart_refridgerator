@@ -8,6 +8,8 @@ import '../widgets/animated_bottom_dock.dart';
 import '../screens/home_screen.dart';
 import '../providers/theme_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../services/api_service.dart';
+import '../services/secure_storage_service.dart';
 
 class DeviceConfigScreen extends StatefulWidget {
   const DeviceConfigScreen({super.key});
@@ -87,7 +89,51 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                           style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 13, height: 1.5),
                         ).animate().fadeIn(delay: 100.ms),
                         
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 20),
+                        
+                        // 🤖 GLOBAL SIMULATION TOGGLE
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.tealAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.psychology_outlined, color: Colors.tealAccent),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Simulation Mode",
+                                      style: GoogleFonts.outfit(color: textColor, fontWeight: FontWeight.bold, fontSize: 15),
+                                    ),
+                                    Text(
+                                      "Enable AI-driven sensor fluctuations when offline.",
+                                      style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch.adaptive(
+                                value: AppSettings.isSimulationEnabled,
+                                activeColor: Colors.tealAccent,
+                                onChanged: (val) async {
+                                  setState(() => AppSettings.isSimulationEnabled = val);
+                                  final token = await SecureStorageService.getToken();
+                                  if (token != null) {
+                                    await ApiService.updateAdminThresholds({'isSimulationEnabled': val}, token);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ).animate().fadeIn(delay: 150.ms),
+
+                        const SizedBox(height: 20),
                         
                         _buildGlassSlider(
                           "Temperature Threshold",

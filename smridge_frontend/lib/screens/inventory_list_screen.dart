@@ -171,7 +171,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 15),
                         decoration: BoxDecoration(

@@ -38,9 +38,9 @@ class _LiquidCardState extends State<LiquidCard>
                 child: Container(),
               ),
 
-              // Real blur
+              // Optimized blur for better performance
               BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                 child: Container(),
               ),
 

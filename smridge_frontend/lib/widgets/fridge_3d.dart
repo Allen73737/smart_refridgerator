@@ -738,7 +738,7 @@ class Fridge3DState extends State<Fridge3D>
     return Positioned.fill(
       child: ClipRRect(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Container(
             color: isLight ? Colors.white.withOpacity(0.8) : Colors.black.withOpacity(0.4),
             child: Column(
@@ -886,7 +886,7 @@ class Fridge3DState extends State<Fridge3D>
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(30),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                   child: Container(
                     decoration: BoxDecoration(
                       color: const Color(0xFF0F172A).withOpacity(0.85),

@@ -173,7 +173,7 @@ class _ChatAssistantOverlayState extends State<ChatAssistantOverlay> with Single
       child: ClipRRect(
         borderRadius: BorderRadius.circular(_isExpanded ? 0 : 32),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Container(
             decoration: BoxDecoration(
               color: glassColor,

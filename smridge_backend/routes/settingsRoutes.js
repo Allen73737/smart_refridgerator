@@ -17,10 +17,11 @@ router.get('/admin-thresholds', async (req, res) => {
                 maxTemperature: threshold.temperatureLimitMax,
                 minHumidity: threshold.humidityLimitMin,
                 maxHumidity: threshold.humidityLimitMax,
-                minFreshness: threshold.freshnessWarningLevel, // freshness only has a warning point
+                minFreshness: threshold.freshnessWarningLevel,
                 maxFreshness: 100,
                 gasLimitMin: threshold.gasLimitMin,
                 gasLimitMax: threshold.gasLimitMax,
+                isSimulationEnabled: threshold.isSimulationEnabled || false,
             });
         }
         // Defaults if no admin has set thresholds yet
@@ -33,7 +34,38 @@ router.get('/admin-thresholds', async (req, res) => {
             maxFreshness: 100,
             gasLimitMin: 0.1,
             gasLimitMax: 1.0,
+            isSimulationEnabled: false,
         });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// POST update admin thresholds (Auth needed)
+router.post('/admin-thresholds', auth, async (req, res) => {
+    try {
+        const { isSimulationEnabled } = req.body;
+        
+        let threshold = await Threshold.findOne().sort({ createdAt: -1 });
+        if (!threshold) {
+            threshold = new Threshold({
+                temperatureLimitMin: 0,
+                temperatureLimitMax: 10,
+                humidityLimitMin: 40,
+                humidityLimitMax: 95,
+                freshnessWarningLevel: 50,
+                isSimulationEnabled: isSimulationEnabled ?? false,
+                updatedBy: req.user.id
+            });
+        } else {
+            if (isSimulationEnabled !== undefined) {
+                threshold.isSimulationEnabled = isSimulationEnabled;
+            }
+            threshold.updatedBy = req.user.id;
+        }
+
+        await threshold.save();
+        res.json({ message: "Admin thresholds updated", isSimulationEnabled: threshold.isSimulationEnabled });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

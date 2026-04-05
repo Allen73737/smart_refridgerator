@@ -5,12 +5,12 @@ import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
 
 class SensorProvider extends ChangeNotifier {
-  double temperature = 3.5;
-  double humidity = 60.0;
-  int gasLevel = 15;
-  double freshnessScore = 100.0;
-  String status = "OPTIMAL";
-  String? doorStatus = "CLOSED";
+  double temperature = 0.0;
+  double humidity = 0.0;
+  int gasLevel = 0;
+  double freshnessScore = 0.0;
+  String status = "LOADING...";
+  String? doorStatus = "---";
   DateTime? lastUpdated;
   bool isRealData = false;
   List<double> tempHistory = []; // 📈 History for mini-sparklines
@@ -18,24 +18,25 @@ class SensorProvider extends ChangeNotifier {
 
   SensorProvider() {
     _initSocket();
+    // 🚀 IMMEDIATE FETCH: Get data right now so UI is in sync on startup
+    _fetchCurrentData();
     _startPolling();
   }
 
-  void _startPolling() {
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
-      try {
-        final token = await SecureStorageService.getToken();
-        if (token != null) {
-          // Poll REST DB to guarantee System Monitor parity with Analytics
-          final data = await ApiService.getLatestSensorData('auto', token);
-          if (data != null) {
-            updateFromData(data);
-          }
-        }
-      } catch (e) {
-        debugPrint("Sensor Polling Error: $e");
+  Future<void> _fetchCurrentData() async {
+    try {
+      final token = await SecureStorageService.getToken();
+      if (token != null) {
+        final data = await ApiService.getLatestSensorData('auto', token);
+        if (data != null) updateFromData(data);
       }
-    });
+    } catch (e) {
+      debugPrint("Initial Sensor Fetch Error: $e");
+    }
+  }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetchCurrentData());
   }
 
   void _initSocket() {
@@ -44,16 +45,16 @@ class SensorProvider extends ChangeNotifier {
       final rawTemp = data['temperature']?.toString() ?? "3.5";
       final rawHum = data['humidity']?.toString() ?? "60.0";
       final rawGas = data['gasLevel']?.toString() ?? "15";
-      final rawFresh = data['calculatedFreshness']?.toString() ?? "100.0";
-      final rawDoor = data['doorStatus']?.toString() ?? "closed";
+      final rawFresh = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "100.0";
+      final rawDoor = (data['doorStatus'] ?? data['doorOpen'] ?? "closed").toString();
 
       temperature = double.tryParse(rawTemp) ?? 3.5;
       humidity = double.tryParse(rawHum) ?? 60.0;
       gasLevel = int.tryParse(rawGas) ?? 15;
       freshnessScore = double.tryParse(rawFresh) ?? 100.0;
       status = data['status']?.toString() ?? "OPTIMAL";
-      doorStatus = (data['doorOpen'] == true || rawDoor == 'open') ? "OPEN" : "CLOSED";
-      isRealData = data['isReal'] ?? false;
+      doorStatus = (rawDoor == 'true' || rawDoor.toLowerCase() == 'open') ? "OPEN" : "CLOSED";
+      isRealData = data['isReal'] ?? true;
       lastUpdated = DateTime.now();
 
       // 📈 Update history buffer for sparklines
@@ -68,15 +69,15 @@ class SensorProvider extends ChangeNotifier {
     final rawTemp = data['temperature']?.toString() ?? "3.5";
     final rawHum = data['humidity']?.toString() ?? "60.0";
     final rawGas = data['gasLevel']?.toString() ?? "15";
-    final rawFresh = data['calculatedFreshness']?.toString() ?? "100.0";
-    final rawDoor = data['doorStatus']?.toString() ?? "closed";
+    final rawFresh = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "100.0";
+    final rawDoor = (data['doorStatus'] ?? data['doorOpen'] ?? "closed").toString();
 
     temperature = double.tryParse(rawTemp) ?? 3.5;
     humidity = double.tryParse(rawHum) ?? 60.0;
     gasLevel = int.tryParse(rawGas) ?? 15;
     freshnessScore = double.tryParse(rawFresh) ?? 100.0;
     status = data['status']?.toString() ?? "OPTIMAL";
-    doorStatus = (data['doorOpen'] == true || rawDoor == 'open') ? "OPEN" : "CLOSED";
+    doorStatus = (rawDoor == 'true' || rawDoor.toLowerCase() == 'open') ? "OPEN" : "CLOSED";
     isRealData = data['isReal'] ?? true; 
     lastUpdated = DateTime.now();
 

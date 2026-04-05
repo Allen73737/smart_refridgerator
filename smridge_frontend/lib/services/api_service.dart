@@ -684,4 +684,24 @@ class ApiService {
     }
     return null;
   }
+
+  static Future<bool> updateAdminThresholds(Map<String, dynamic> data, String token) async {
+    try {
+      final url = Uri.parse('$baseDomain/api/settings/admin-thresholds');
+      print("📡 [API] Updating Admin Thresholds: $url");
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-auth-token': token,
+        },
+        body: jsonEncode(data),
+      );
+      print("📥 Admin Thresholds Response [${response.statusCode}]: ${response.body}");
+      return response.statusCode == 200;
+    } catch (e) {
+      print("❌ [API] Admin Thresholds Update Error: $e");
+    }
+    return false;
+  }
 }

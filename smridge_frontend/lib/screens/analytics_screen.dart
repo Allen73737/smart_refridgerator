@@ -75,8 +75,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
         double temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
         double hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
-        double fresh = double.tryParse(data['calculatedFreshness']?.toString() ?? "85.0") ?? 85.0;
-        double doorVal = data['doorStatus'] == 'open' ? 1.0 : 0.0;
+        double fresh = double.tryParse((data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "85.0") ?? 85.0;
+        double doorVal = (data['doorStatus'] == 'open' || data['doorOpen'] == true) ? 1.0 : 0.0;
 
         _tempData.add(FlSpot(x, temp));
         _humData.add(FlSpot(x, hum));

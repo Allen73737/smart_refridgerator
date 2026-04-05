@@ -8,6 +8,7 @@ const thresholdSchema = mongoose.Schema({
     humidityLimitMin: { type: Number, required: true, default: 40 },
     humidityLimitMax: { type: Number, required: true, default: 95 },
     freshnessWarningLevel: { type: Number, required: true, default: 50 },
+    isSimulationEnabled: { type: Boolean, default: false },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 

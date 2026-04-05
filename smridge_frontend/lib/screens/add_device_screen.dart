@@ -428,7 +428,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(30),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
         child: Container(
           width: width,
           padding: const EdgeInsets.all(32),

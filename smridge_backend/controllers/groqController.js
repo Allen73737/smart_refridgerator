@@ -70,7 +70,9 @@ exports.analyzeFood = async (req, res) => {
         const { name, expiryDate } = req.body;
         if (!name) return res.status(400).json({ message: "Food name required" });
 
-        const currentSensors = await sensorService.getCurrentSensors();
+        const userId = req.user?.id;
+        const currentSensors = await sensorService.getCurrentSensors(userId);
+        const trends = await sensorService.getRecentTrends(userId);
         const gas_value   = currentSensors.gasLevel;
         const temperature = currentSensors.temperature.toFixed(1);
         const humidity    = currentSensors.humidity.toFixed(1);
@@ -78,7 +80,10 @@ exports.analyzeFood = async (req, res) => {
         const current_date = new Date().toISOString().split("T")[0];
         const expiry_date  = expiryDate ? new Date(expiryDate).toISOString().split("T")[0] : "unknown";
 
-        const userId = req.user?.id;
+        // 🧬 BASELINE SYNC: Calculate the SAME freshness score as the analytics screen
+        const mockItem = { name, expiryDate: expiryDate ? new Date(expiryDate) : new Date(Date.now() + 7*24*60*60*1000) };
+        const calculatedIndex = await calculateFreshness(mockItem, currentSensors);
+
         let inventoryContext = "No other items in fridge.";
         if (userId) {
             const items = await Item.find({ userId });
@@ -125,6 +130,8 @@ Categories: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condime
 
 const userPrompt = `Develop a masterpiece, multi-dimensional analysis for: ${name}.
 Telemetry: Date ${current_date}, Expiry ${expiry_date}, Sensors: Gas ${gas_value}ppm, Temp ${temperature}C, Hum ${humidity}%.
+Trends: ${trends}
+Calculated Freshness Baseline: ${calculatedIndex}/100 (Use this as your primary reference for the freshness_score).
 Inventory Context: ${inventoryContext}
 Research Payload: ${offContext}
 MANDATE: 
@@ -158,6 +165,10 @@ MANDATE:
                 analysis.overview = analysis.overview.split("•").filter(s => s.trim().length > 0).map(s => `- ${s.trim()}`).join("\n");
             }
         }
+        
+        // 🧬 ABSOLUTE SYNC: Force the AI's mastery score to match the Analytics Baseline exactly.
+        // This prevents the AI from 'hallucinating' a slightly different score than the dashboard.
+        analysis.freshness_score = calculatedIndex;
 
         // --- PERSIST ANALYSIS TO DB ---
         if (userId) {
@@ -198,9 +209,10 @@ exports.chatAssistant = async (req, res) => {
     try {
         const { message, history } = req.body;
         const userId = req.user.id;
+        const sensors = await sensorService.getCurrentSensors(userId);
+        const trends = await sensorService.getRecentTrends(userId);
 
         const rawItems = await Item.find({ userId }).lean();
-        const sensors = await sensorService.getCurrentSensors();
 
         // 🔹 Recalculate freshness ONCE using pre-fetched sensors
         const items = await Promise.all(rawItems.map(async (i) => {
@@ -213,7 +225,7 @@ exports.chatAssistant = async (req, res) => {
             : "Fridge is empty";
 
         const sensorContext = sensors
-            ? `Fridge Temp: ${sensors.temperature.toFixed(1)} Celsius, Humidity: ${sensors.humidity.toFixed(1)}%, Gas: ${sensors.gasLevel}`
+            ? `Fridge Temp: ${sensors.temperature.toFixed(1)} Celsius, Humidity: ${sensors.humidity.toFixed(1)}%, Gas: ${sensors.gasLevel}.\nContextual Trends: ${trends}`
             : "No sensor data available.";
 
         const messages = [
@@ -222,7 +234,8 @@ exports.chatAssistant = async (req, res) => {
                 content: `You are Smridgey - The Smridge AI Assistant, a sophisticated yet exceptionally friendly and patient Logistics Intelligence Specialist. 
 
 CRITICAL DIRECTIVES:
-1. **Smridgey Persona**: Always identify as Smridgey. You are warm, welcoming, and enjoy a bit of lighthearted conversation. Your tone should be scholarly yet very approachable. **In the very first response of a new conversation, always start with: "Hello! I am Smridgey - The Smridge AI Assistant."**
+1. **Live Data Integrity**: You MUST ONLY use the provided sensor data (Temp, Hum, Gas) below. DO NOT hallucinate or use random numbers. If asked for current status, cite the exact numbers from the "LIVE TELEMETRY" section.
+2. **Smridgey Persona**: Always identify as Smridgey. You are warm, welcoming, and enjoy a bit of lighthearted conversation. Your tone should be scholarly yet very approachable. **In the very first response of a new conversation, always start with: "Hello! I am Smridgey - The Smridge AI Assistant."**
 2. **Smridge Brand Knowledge**:
    - **Default Brand**: Smridge is the premium, default brand for all inventory items unless otherwise specified.
    - **Characteristics**: Smridge stands for IoT-driven sustainability, precise sensor analytics (Temp/Hum/Gas), and artistic 3D visualization.

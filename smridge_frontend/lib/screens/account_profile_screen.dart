@@ -227,7 +227,7 @@ class _AccountProfileScreenState extends State<AccountProfileScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(24),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                       child: Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
