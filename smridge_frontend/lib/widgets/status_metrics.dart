@@ -62,27 +62,25 @@ class _StatusMetricsState
     final freshness = sensor.freshnessScore;
     final isDoorOpen = sensor.doorStatus == "OPEN";
 
-    return AnimatedBuilder(
-      animation: pulseController,
-      builder: (_, __) {
-        bool danger = isTempDanger(temperature) || isHumidityDanger(humidity) || isFreshDanger(freshness);
-
-        return MouseRegion(
-          onEnter: (_) => setState(() => _isHovering = true),
-          onExit: (_) => setState(() => _isHovering = false),
-          child: GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
-            child: AnimatedScale(
-              scale: _isHovering ? 1.05 : 1.0,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutBack,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 400),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), // Even tighter
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovering = true),
+      onExit: (_) => setState(() => _isHovering = false),
+      child: GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
+        child: AnimatedScale(
+          scale: _isHovering ? 1.05 : 1.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutBack,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: AnimatedBuilder(
+                animation: pulseController,
+                builder: (_, child) {
+                  bool danger = isTempDanger(temperature) || isHumidityDanger(humidity) || isFreshDanger(freshness);
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(24),
                       color: isLight 
@@ -109,9 +107,13 @@ class _StatusMetricsState
                           ),
                       ],
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+                    child: child,
+                  );
+                },
+                child: RepaintBoundary(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                         Row(
                           children: [
                             Container(
@@ -241,8 +243,8 @@ class _StatusMetricsState
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 

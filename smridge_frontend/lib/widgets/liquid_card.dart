@@ -26,7 +26,7 @@ class _LiquidCardState extends State<LiquidCard>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (_, __) {
+      builder: (_, child) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(35),
           child: Stack(
@@ -59,12 +59,13 @@ class _LiquidCardState extends State<LiquidCard>
                     color: Colors.white.withOpacity(0.25),
                   ),
                 ),
-                child: widget.child,
+                child: child,
               ),
             ],
           ),
         );
       },
+      child: RepaintBoundary(child: widget.child),
     );
   }
 }
