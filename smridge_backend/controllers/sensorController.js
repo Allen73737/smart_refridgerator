@@ -279,8 +279,12 @@ exports.receiveSensorData = async (req, res) => {
             primaryUser,
             "inventory",
             "Weight Increase Detected",
-            "Looks like some item is added to the inventory.",
-            "#4CAF50"
+            `Weight detected! Looks like you added something (${calibratedWeight}g). Tap to register it.`,
+            "#4CAF50",
+            {
+              route: '/add_inventory',
+              recordedWeight: calibratedWeight.toString()
+            }
           );
         }
       }

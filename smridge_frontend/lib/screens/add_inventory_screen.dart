@@ -24,16 +24,18 @@ import '../services/secure_storage_service.dart';
 import '../widgets/app_walkthrough.dart'; // 🎯
 
 class AddInventoryScreen extends StatefulWidget {
-  final Function(InventoryItem) onSave;
+  final Function(InventoryItem)? onSave;
   final InventoryItem? existingItem;
   final InventoryItem? initialItem;
   final VoidCallback? onBack;
+  final double? initialWeight; // 🆕 Added for deep linking
 
   const AddInventoryScreen({
     super.key,
-    required this.onSave,
+    this.onSave,
     this.existingItem,
     this.initialItem,
+    this.initialWeight,
     this.onBack,
   });
 
@@ -102,6 +104,14 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     _checkFirstVisit();
 
     final item = widget.existingItem ?? widget.initialItem;
+
+    if (widget.initialWeight != null) {
+      double rawWeight = widget.initialWeight!;
+      if (rawWeight > 100) rawWeight = rawWeight / 1000; // Convert to KG
+      weightController.text = rawWeight.toStringAsFixed(3);
+      currentWeight = rawWeight;
+      SnackbarUtils.showInfo(context, "Weight data captured. Please enter details.");
+    }
 
     if (item != null) {
       nameController.text = item.name;

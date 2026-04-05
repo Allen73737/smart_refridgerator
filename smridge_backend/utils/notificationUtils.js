@@ -12,8 +12,9 @@ const socketManager = require("./socketManager");
  * @param {string} title - Alert title.
  * @param {string} message - Alert body.
  * @param {string} color - Hex color for UI representation.
+ * @param {Object} extraData - Additional JSON configuration to embed in FCM payload
  */
-async function createAndSendAlert(user, type, title, message, color = "#FF0000") {
+async function createAndSendAlert(user, type, title, message, color = "#FF0000", extraData = {}) {
   try {
     // 🛡️ DEDUPLICATION: Prevent duplicate alerts for the same type/title within 5 mins
     const recentAlert = await NotificationModel.findOne({
@@ -46,7 +47,7 @@ async function createAndSendAlert(user, type, title, message, color = "#FF0000")
         user.fcmToken,
         `Smridge: ${title}`,
         message,
-        { type, color }
+        { type, color, ...extraData }
       ).catch(err => console.error("Push notification error:", err));
     }
 

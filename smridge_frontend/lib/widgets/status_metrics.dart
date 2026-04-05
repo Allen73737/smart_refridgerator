@@ -138,11 +138,7 @@ class _StatusMetricsState
                                       letterSpacing: 2,
                                     ),
                                   ),
-                                  if (!sensor.isRealData)
-                                    Text(
-                                      "SIMULATION MODE",
-                                      style: TextStyle(color: Colors.orangeAccent.withOpacity(0.7), fontSize: 8, fontWeight: FontWeight.bold),
-                                    ),
+                                  // 🚀 SIMULATION MODE BADGE REMOVED
                                 ],
                               ),
                             ),

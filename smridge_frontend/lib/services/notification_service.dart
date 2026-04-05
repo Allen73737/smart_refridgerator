@@ -193,7 +193,12 @@ class NotificationService {
     final String title = message.notification?.title ?? message.data['title'] ?? "Smridge Alert";
     final String body = message.notification?.body ?? message.data['body'] ?? "";
     final String? color = message.data['color'];
-    final String? payload = message.data['payload'];
+    
+    // Construct deep-linking payload from arbitrary FCM data
+    String? payload = message.data['payload'];
+    if (payload == null && message.data.containsKey('route')) {
+      payload = '{"route": "${message.data['route']}", "recordedWeight": "${message.data['recordedWeight'] ?? ""}"}';
+    }
     
     // 🛡️ Aligned ID from backend payload for deduplication
     // 💡 IMPORTANT: If type is 'expiry', we MUST use the stable item name ID to replace trackers

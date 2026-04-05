@@ -423,6 +423,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (payload == null || payload.isEmpty) return;
     print("🚀 Deep Link Triggered: $payload");
 
+    // 1. JSON Payload Handling Feature (Navigation)
+    if (payload.startsWith('{') && payload.endsWith('}')) {
+      try {
+        final data = json.decode(payload);
+        if (data['route'] == '/add_inventory') {
+          // Open Add Inventory and optionally pass recorded weight
+          String rawWeight = data['recordedWeight'] ?? "";
+          double? initialWeight;
+          if (rawWeight.isNotEmpty) {
+            initialWeight = double.tryParse(rawWeight);
+          }
+          
+          if (mounted) {
+             Navigator.push(
+               context,
+               MaterialPageRoute(builder: (context) => AddInventoryScreen(
+                 initialWeight: initialWeight,
+               )),
+             );
+          }
+        }
+        return;
+      } catch (e) {
+        print("Error parsing deep link JSON: $e");
+      }
+    }
+
+    // 2. Legacy text payload handling
     if (payload.startsWith('inventory:')) {
       final itemName = payload.split('inventory:').last;
       

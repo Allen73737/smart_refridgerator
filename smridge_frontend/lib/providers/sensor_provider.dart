@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../services/socket_service.dart';
+import '../services/api_service.dart';
+import '../services/secure_storage_service.dart';
 
 class SensorProvider extends ChangeNotifier {
   double temperature = 3.5;
@@ -11,9 +14,28 @@ class SensorProvider extends ChangeNotifier {
   DateTime? lastUpdated;
   bool isRealData = false;
   List<double> tempHistory = []; // 📈 History for mini-sparklines
+  Timer? _pollingTimer;
 
   SensorProvider() {
     _initSocket();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      try {
+        final token = await SecureStorageService.getToken();
+        if (token != null) {
+          // Poll REST DB to guarantee System Monitor parity with Analytics
+          final data = await ApiService.getLatestSensorData('auto', token);
+          if (data != null) {
+            updateFromData(data);
+          }
+        }
+      } catch (e) {
+        debugPrint("Sensor Polling Error: $e");
+      }
+    });
   }
 
   void _initSocket() {
@@ -79,6 +101,7 @@ class SensorProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
     SocketService.off('sensor_data');
     super.dispose();
   }
