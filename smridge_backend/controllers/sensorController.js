@@ -311,7 +311,7 @@ exports.receiveSensorData = async (req, res) => {
               primaryUser,
               "system",
               "Door Left Open",
-              "The fridge door has been open for over 2 minutes! Energy loss occurring.",
+              "Door is open for more than 2 minutes, close the door to preserve freshness.",
               "#FF0000"
             );
             doorOpenAlertSent = true;
