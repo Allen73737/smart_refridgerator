@@ -106,13 +106,10 @@ exports.receiveSensorData = async (req, res) => {
       return res.status(400).json({ message: "Invalid door status" });
     }
 
-    // 🔍 IDENTITY LOOKUP: Find the owner of this device
-    let device = await Device.findOne({ deviceId }).populate("userId");
+    // 🔍 IDENTITY LOOKUP: Find the owner of this device and any shared users
+    let device = await Device.findOne({ deviceId }).populate("userId").populate("sharedWith");
 
     // 🔥 AUTO-PROVISIONING FALLBACK:
-    // If the user closed the app before completing the final "Link to Cloud" step,
-    // the fridge will ping the server but get rejected. This explicitly intercepts
-    // the orphan ping and automatically registers the fridge to their account.
     if (!device) {
       console.log(`[Auto-Provision] Rescuing orphaned device: ${deviceId}`);
       const masterUser = await User.findOne().sort({ createdAt: 1 });
@@ -123,253 +120,213 @@ exports.receiveSensorData = async (req, res) => {
               userId: masterUser._id
           });
           device.userId = masterUser; // Mock populated state
+          device.sharedWith = [];
       } else {
           return res.status(404).json({ message: "System has no registered users yet." });
       }
     }
 
-    if (!device.userId) {
+    const allUsers = [];
+    if (device.userId) allUsers.push(device.userId);
+    if (device.sharedWith && Array.isArray(device.sharedWith)) {
+        allUsers.push(...device.sharedWith);
+    }
+    
+    if (allUsers.length === 0) {
       return res.status(404).json({ message: "Device is corrupted or unlinked." });
     }
 
-    const primaryUser = device.userId;
-    const syncKey = `fridge_${primaryUser._id}`;
+    const adminThresholds = await Threshold.findOne().sort({ createdAt: -1 }).lean();
+    let primaryFreshness = 100;
+    let primaryStatus = "OPTIMAL";
+    let primaryAlert = false;
+    let primaryAlertType = "";
     const now = Date.now();
 
-    const adminThresholds = await Threshold.findOne().sort({ createdAt: -1 }).lean();
+    for (let i = 0; i < allUsers.length; i++) {
+        const currentUser = allUsers[i];
+        if (!currentUser || !currentUser._id) continue;
+        const syncKey = `fridge_${currentUser._id}`;
+        
+        let temp = temperature;
+        let hum = humidity;
+        const userSeed = parseInt(currentUser._id.toString().substring(0, 8), 16);
+        const userTempOffset = (userSeed % 5) - 2.5;
+        const userHumOffset = (userSeed % 10) - 5;
+        temp += userTempOffset;
+        hum += userHumOffset;
 
-    if (primaryUser) {
-      const userSeed = parseInt(primaryUser._id.toString().substring(0, 8), 16);
-      const userTempOffset = (userSeed % 5) - 2.5;
-      const userHumOffset = (userSeed % 10) - 5;
+        // Save latest known state & get calibrated values
+        const previousState = sensorService.updateLastKnown({
+          temperature: temp,
+          humidity: hum,
+          gasLevel,
+          weight, // Pass raw weight for calibration
+          doorStatus
+        }, deviceId, currentUser._id);
 
-      temperature += userTempOffset;
-      humidity += userHumOffset;
-    }
+        // Get the newly calibrated weight and event
+        const liveSensors = await sensorService.getCurrentSensors(currentUser._id);
+        const calibratedWeight = liveSensors.weight;
+        const weightEvent = liveSensors.event;
 
-    // Save latest known state & get calibrated values
-    const previousState = sensorService.updateLastKnown({
-      temperature,
-      humidity,
-      gasLevel,
-      weight, // Pass raw weight for calibration
-      doorStatus
-    }, deviceId, primaryUser._id);
+        // Log door activity if state changed
+        if (previousState && previousState.doorStatus !== doorStatus) {
+          const action = doorStatus === "open" ? "DOOR_OPEN" : "DOOR_CLOSE";
+          await logActivity(
+            currentUser._id,
+            action,
+            "user",
+            `The fridge door was ${doorStatus === "open" ? "opened" : "closed"}.`
+          );
+        }
 
-    // Get the newly calibrated weight and event
-    const liveSensors = await sensorService.getCurrentSensors(primaryUser._id);
-    const calibratedWeight = liveSensors.weight;
-    const weightEvent = liveSensors.event;
+        // 🥗 Overall Freshness Calculation (Aggregate)
+        const activeItems = await Item.find({ userId: currentUser._id });
+        const scores = calculateOverallFreshness({
+          temperature: temp,
+          humidity: hum,
+          gasLevel,
+          weight: calibratedWeight
+        }, activeItems);
 
-    // Log door activity if state changed
-    if (previousState && previousState.doorStatus !== doorStatus && primaryUser) {
-      const action = doorStatus === "open" ? "DOOR_OPEN" : "DOOR_CLOSE";
-      await logActivity(
-        primaryUser._id,
-        action,
-        "user",
-        `The fridge door was ${doorStatus === "open" ? "opened" : "closed"}.`
-      );
-    }
+        const alertDetails = getAlertDetails(scores);
+        const { freshness_score, status, alert, alert_type, message } = alertDetails;
 
-    // 🥗 Overall Freshness Calculation (Aggregate)
-    const activeItems = await Item.find({ userId: primaryUser._id });
-    const scores = calculateOverallFreshness({
-      temperature,
-      humidity,
-      gasLevel,
-      weight: calibratedWeight
-    }, activeItems);
+        if (i === 0) {
+           primaryFreshness = freshness_score;
+           primaryStatus = status;
+           primaryAlert = alert;
+           primaryAlertType = alert_type;
+        }
 
-    const alertDetails = getAlertDetails(scores);
-    const { freshness_score, status, alert, alert_type, message } = alertDetails;
+        // Emit real-time socket event (TARGETED to user)
+        socketManager.emitToUser(currentUser._id, "sensor_data", {
+          temperature: temp,
+          humidity: hum,
+          gasLevel,
+          weight: calibratedWeight,
+          doorOpen: doorStatus === "open",
+          doorStatus: doorStatus,
+          freshnessScore: freshness_score,
+          calculatedFreshness: freshness_score,
+          status: status,
+          alert: alert,
+          alert_type: alert_type,
+          message: message,
+          scores,
+          isReal: true,
+          timestamp: new Date()
+        });
 
-    // Emit real-time socket event (TARGETED to owner only)
-    socketManager.emitToUser(primaryUser._id, "sensor_data", {
-      temperature: temperature,
-      humidity: humidity,
-      gasLevel,
-      weight: calibratedWeight,
-      doorOpen: doorStatus === "open",
-      doorStatus: doorStatus,
-      freshnessScore: freshness_score,
-      calculatedFreshness: freshness_score,
-      status: status,
-      alert: alert,
-      alert_type: alert_type,
-      message: message,
-      scores,
-      isReal: true,
-      timestamp: new Date()
-    });
+        // Throttle DB writes per user
+        if (!lastSyncCache.has(syncKey) || now - lastSyncCache.get(syncKey) >= DB_SYNC_THROTTLE_MS) {
+            lastSyncCache.set(syncKey, now);
+            
+            const energyConsumption = (temp > 8 ? 0.5 : 0.2) + (Math.random() * 0.1);
+
+            // Save sensor history
+            SensorData.create({
+              temperature: temp,
+              humidity: hum,
+              gasLevel,
+              weight: calibratedWeight, 
+              doorStatus,
+              freshnessScore: freshness_score,
+              status: status,
+              energyConsumption,
+              userId: currentUser._id,
+              deviceId: deviceId
+            }).catch(err => console.error("History log error:", err));
+
+            const fridgeScoreDetails = getSensorScore({
+              temperature: temp,
+              humidity: hum,
+              gasLevel,
+              weight,
+              doorStatus
+            });
+
+            FridgeStatus.findOneAndUpdate(
+              { userId: currentUser._id },
+              {
+                $set: {
+                  freshnessPercentage: freshness_score,
+                  gasLevel,
+                  temperature: temp,
+                  humidity: hum,
+                  doorStatus,
+                  weight: calibratedWeight,
+                  status,
+                  alertDetails: { alert, alert_type, message },
+                  lastUpdated: Date.now()
+                }
+              },
+              { upsert: true, new: true }
+            ).catch(err => console.error("FridgeStatus sync error:", err));
+
+            // 🚨 CRITICAL ALERT TRIGGER (Priority-based)
+            if (alert) {
+              const severityColor = (alert_type === "FOOD_SPOILED") ? "#FF0000" : "#FF9800";
+              createAndSendAlert(currentUser, alert_type.toLowerCase(), alert_type.replace(/_/g, " "), message, severityColor);
+            }
+
+            const T_LIMIT = adminThresholds?.temperatureLimitMax ?? TEMP_THRESHOLD;
+            const G_LIMIT = adminThresholds?.gasLimitMax ?? GAS_THRESHOLD;
+
+            if (temp > T_LIMIT) {
+              createAndSendAlert(currentUser, "temperature", "High Temperature Alert", `Fridge temperature is too high: ${temp.toFixed(1)}°C`, "#FF0000");
+            }
+
+            if (gasLevel > G_LIMIT) {
+              createAndSendAlert(currentUser, "spoilage", "Spoilage Detected", `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`, "#FF5722");
+            }
+
+            // ⚖️ WEIGHT ADDITION ALERT (Dual-Channel)
+            if (weightEvent === "added") {
+              const recentlyAdded = activityState.wasRecentlyAddedViaApp(currentUser._id);
+              if (!recentlyAdded) {
+                createAndSendAlert(currentUser, "inventory", "Weight Added", `A new weight of ${calibratedWeight}g was detected. Tap to register the item! 🧊`, "#4CAF50", { route: '/add_inventory', recordedWeight: calibratedWeight.toString() });
+              }
+            }
+
+            // ⚖️ WEIGHT REMOVAL ALERT (Dual-Channel)
+            if (weightEvent === "removed") {
+                const removedWeight = Math.round(Math.abs(calibratedWeight - (previousState?.weight ?? calibratedWeight)));
+                createAndSendAlert(currentUser, "inventory", "Item Removed", `Something was just removed! Weight decreased by ${removedWeight}g. 🧊`, "#FF9800");
+            }
+
+            if (hum > 80) {
+              createAndSendAlert(currentUser, "humidity", "High Humidity Alert", `Humidity is too high: ${hum.toFixed(0)}%.`, "#2196F3");
+            }
+
+            // Door checks
+            if (doorStatus === "open") {
+              if (!doorOpenStartTime) {
+                doorOpenStartTime = Date.now();
+                doorOpenAlertSent = false;
+              } else {
+                const durationMins = (Date.now() - doorOpenStartTime) / (1000 * 60);
+                if (durationMins >= 2 && !doorOpenAlertSent) {
+                  createAndSendAlert(currentUser, "system", "Door Left Open", "Door is open for more than 2 minutes, close the door to preserve freshness.", "#FF0000");
+                  doorOpenAlertSent = true; // BUG WARNING: This is a global flag right now, ideally needs to be per-fridge
+                }
+              }
+            } else {
+              doorOpenStartTime = null;
+              doorOpenAlertSent = false;
+            }
+        }
+    } // End of Family Loop
 
     // Respond to ESP32 immediately
     res.status(200).json({
       message: "Sensor data processed",
-      freshness: freshness_score,
-      status,
-      alert,
-      alert_type
+      freshness: primaryFreshness,
+      status: primaryStatus,
+      alert: primaryAlert,
+      alert_type: primaryAlertType
     });
-
-    // Throttle DB writes
-    if (
-      lastSyncCache.has(syncKey) &&
-      now - lastSyncCache.get(syncKey) < DB_SYNC_THROTTLE_MS
-    ) {
-      return;
-    }
-
-    lastSyncCache.set(syncKey, now);
-
-    // Energy simulation
-    const energyConsumption = (temperature > 8 ? 0.5 : 0.2) + (Math.random() * 0.1);
-
-    // Save sensor history (SECURE with foreign keys)
-    SensorData.create({
-      temperature,
-      humidity,
-      gasLevel,
-      weight: calibratedWeight, // Store calibrated weight
-      doorStatus,
-      freshnessScore: freshness_score,
-      status: status,
-      energyConsumption,
-      userId: primaryUser._id,
-      deviceId: deviceId
-    }).catch(err => console.error("History log error:", err));
-
-    if (primaryUser) {
-      const fridgeScoreDetails = getSensorScore({
-        temperature,
-        humidity,
-        gasLevel,
-        weight,
-        doorStatus
-      });
-
-      const freshnessPercentage = Math.round((fridgeScoreDetails.total / 60) * 100);
-
-      FridgeStatus.findOneAndUpdate(
-        { userId: primaryUser._id },
-        {
-          $set: {
-            freshnessPercentage: freshness_score,
-            gasLevel,
-            temperature,
-            humidity,
-            doorStatus,
-            weight: calibratedWeight,
-            status,
-            alertDetails: {
-              alert,
-              alert_type,
-              message
-            },
-            lastUpdated: Date.now()
-          }
-        },
-        { upsert: true, new: true }
-      ).catch(err => console.error("FridgeStatus sync error:", err));
-
-      // 🚨 CRITICAL ALERT TRIGGER (Priority-based)
-      if (alert) {
-        const severityColor = (alert_type === "FOOD_SPOILED") ? "#FF0000" : "#FF9800";
-        createAndSendAlert(
-          primaryUser,
-          alert_type.toLowerCase(),
-          alert_type.replace(/_/g, " "),
-          message,
-          severityColor
-        );
-      }
-
-      const T_LIMIT = adminThresholds?.temperatureLimitMax ?? TEMP_THRESHOLD;
-      const G_LIMIT = adminThresholds?.gasLimitMax ?? GAS_THRESHOLD;
-
-      if (temperature > T_LIMIT) {
-        createAndSendAlert(
-          primaryUser,
-          "temperature",
-          "High Temperature Alert",
-          `Fridge temperature is too high: ${temperature}°C`,
-          "#FF0000"
-        );
-      }
-
-      if (gasLevel > G_LIMIT) {
-        createAndSendAlert(
-          primaryUser,
-          "spoilage",
-          "Spoilage Detected",
-          `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`,
-          "#FF5722"
-        );
-      }
-
-      // ⚖️ WEIGHT ADDITION ALERT (Dual-Channel)
-      if (weightEvent === "added") {
-        const recentlyAdded = activityState.wasRecentlyAddedViaApp(primaryUser._id);
-        if (!recentlyAdded) {
-          createAndSendAlert(
-            primaryUser,
-            "inventory",
-            "Weight Added: ${calibratedWeight}g",
-            `A new weight of ${calibratedWeight}g was detected. Tap to register the item! 🧊`,
-            "#4CAF50",
-            {
-              route: '/add_inventory',
-              recordedWeight: calibratedWeight.toString()
-            }
-          );
-        }
-      }
-
-      // ⚖️ WEIGHT REMOVAL ALERT (Dual-Channel)
-      if (weightEvent === "removed") {
-          const removedWeight = Math.round(Math.abs(calibratedWeight - (previousState?.weight ?? calibratedWeight)));
-          createAndSendAlert(
-            primaryUser,
-            "inventory",
-            "Item Removed",
-            `Something was just removed from the fridge! Weight decreased by ${removedWeight}g. 🧊`,
-            "#FF9800"
-          );
-      }
-
-      if (humidity > 80) {
-        createAndSendAlert(
-          primaryUser,
-          "humidity",
-          "High Humidity Alert",
-          `Humidity is too high: ${humidity}%.`,
-          "#2196F3"
-        );
-      }
-
-      // Door checks
-      if (doorStatus === "open") {
-        if (!doorOpenStartTime) {
-          doorOpenStartTime = Date.now();
-          doorOpenAlertSent = false;
-        } else {
-          const durationMins = (Date.now() - doorOpenStartTime) / (1000 * 60);
-          if (durationMins >= 2 && !doorOpenAlertSent) {
-            createAndSendAlert(
-              primaryUser,
-              "system",
-              "Door Left Open",
-              "Door is open for more than 2 minutes, close the door to preserve freshness.",
-              "#FF0000"
-            );
-            doorOpenAlertSent = true;
-          }
-        }
-      } else {
-        doorOpenStartTime = null;
-        doorOpenAlertSent = false;
-      }
-    }
 
   } catch (error) {
     console.error("ESP32 Sensor Error:", error);

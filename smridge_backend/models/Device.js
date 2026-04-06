@@ -18,6 +18,12 @@ const deviceSchema = new mongoose.Schema(
       ref: "User",
       required: false,
     },
+    sharedWith: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     isActive: {
       type: Boolean,
       default: true,

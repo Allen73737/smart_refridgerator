@@ -40,25 +40,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<OnboardingData> _pages = [
     OnboardingData(
-      title: "Smart Vision",
-      description: "Experience the future of refrigeration. Our AI instantly recognizes your groceries with clinical precision.",
+      title: "Smart Vision AI",
+      description: "Experience effortless tracking. Our AI auto-detects details and curates a beautiful visual gallery for your food.",
       icon: Icons.visibility_outlined,
       color: Colors.tealAccent,
-      image: "assets/images/fridge_vision.png", // Generic placeholder or use an icon
+      image: "assets/images/fridge_vision.png", 
     ),
     OnboardingData(
-      title: "Fortified Security",
-      description: "Your data, protected. Set a secure PIN and enjoy peace of mind with encrypted local storage.",
+      title: "Live Expiry Timers",
+      description: "Never waste a meal. Get massive, persistent countdown trackers directly pinned to your notification shade.",
+      icon: Icons.timer_outlined,
+      color: const Color(0xFFFF004D), 
+      image: "assets/images/notification_pulse.png",
+    ),
+    OnboardingData(
+      title: "Fortified Vault",
+      description: "Your connected fridge is locked down. Secure PIN access ensures your household data remains entirely private.",
       icon: Icons.security_outlined,
       color: Colors.blueAccent,
       image: "assets/images/security_vault.png",
-    ),
-    OnboardingData(
-      title: "Real-time Pulse",
-      description: "Stay connected always. Receive instant notifications the moment your fridge needs attention.",
-      icon: Icons.speed_outlined,
-      color: Colors.orangeAccent,
-      image: "assets/images/notification_pulse.png",
     ),
   ];
 

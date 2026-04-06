@@ -29,6 +29,7 @@ const DEFAULT_STATE = {
  * Performs calibration, smoothing, and change detection.
  */
 exports.updateLastKnown = (data, deviceId = "DEFAULT", userId = "GLOBAL") => {
+    userId = String(userId);
     const previous = { ...(userStates.get(userId) || DEFAULT_STATE) };
     
     // 1. Maintain Smoothing Buffer
@@ -80,6 +81,7 @@ exports.updateLastKnown = (data, deviceId = "DEFAULT", userId = "GLOBAL") => {
  * 🔄 FALLBACK: If in-memory state is missing, it retrieves the 'Last Known Good' from Analytics History.
  */
 exports.getCurrentSensors = async (userId = "GLOBAL") => {
+    userId = String(userId);
     const now = Date.now();
     let currentState = userStates.get(userId);
     let lastHardwareTimestamp = userHardwareTimestamps.get(userId) || 0;
@@ -87,7 +89,8 @@ exports.getCurrentSensors = async (userId = "GLOBAL") => {
     // 🕵️ DB FALLBACK: If no memory state, check Analytics History (SensorData)
     if (!currentState && userId !== "GLOBAL") {
         try {
-            const latestHistory = await SensorData.findOne({ userId }).sort({ timestamp: -1 }).lean();
+            // Fetch directly from the database the ESP32 values
+            const latestHistory = await SensorData.findOne({ userId, isSimulated: false }).sort({ timestamp: -1 }).lean();
             if (latestHistory) {
                 console.log(`🧠 AI/Monitor Link: Restored Last Known state from Analytics for user ${userId}`);
                 currentState = {
@@ -96,6 +99,9 @@ exports.getCurrentSensors = async (userId = "GLOBAL") => {
                     gasLevel: latestHistory.gasLevel,
                     weight: latestHistory.weight,
                     doorStatus: latestHistory.doorStatus || "closed",
+                    freshnessScore: latestHistory.freshnessScore || 100, // Ensure freshness is mapped
+                    calculatedFreshness: latestHistory.freshnessScore || 100,
+                    status: latestHistory.status || "OPTIMAL", // Ensure status is mapped
                     event: "history_restore"
                 };
                 userStates.set(userId, currentState);
@@ -115,25 +121,6 @@ exports.getCurrentSensors = async (userId = "GLOBAL") => {
 
     const isOffline = (now - lastHardwareTimestamp) > 30000;
 
-    if (isOffline) {
-        const lastSim = userSimulationTimestamps.get(userId) || now;
-        const elapsedS = (now - lastSim) / 1000;
-        if (elapsedS >= 1) {
-            // Apply slight realistic drift to the 'Last Known' data
-            currentState.temperature += (Math.random() - 0.5) * 0.1 * elapsedS;
-            currentState.humidity += (Math.random() - 0.5) * 0.5 * elapsedS;
-            currentState.gasLevel += (Math.random() - 0.5) * 2.0 * elapsedS;
-            
-            // Clamp to realistic fridge bounds
-            currentState.temperature = Math.max(1.5, Math.min(10.0, currentState.temperature));
-            currentState.humidity = Math.max(40.0, Math.min(85.0, currentState.humidity));
-            currentState.gasLevel = Math.max(20.0, currentState.gasLevel);
-            
-            userStates.set(userId, currentState);
-            userSimulationTimestamps.set(userId, now);
-        }
-    }
-
     return { ...currentState, timestamp: lastHardwareTimestamp, isReal: !isOffline };
 };
 
@@ -142,6 +129,7 @@ exports.getCurrentSensors = async (userId = "GLOBAL") => {
  * Summarizes the "Device Analytics" context for the AI.
  */
 exports.getRecentTrends = async (userId = "GLOBAL", limit = 10) => {
+    userId = String(userId);
     try {
         const history = await SensorData.find({ userId })
             .sort({ timestamp: -1 })

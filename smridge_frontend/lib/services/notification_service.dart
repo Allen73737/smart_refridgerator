@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -260,6 +261,16 @@ class NotificationService {
 
   Future<void> cancelAllForItem(String itemName) async {
     final int baseId = getStableId(itemName);
+    
+    if (Platform.isAndroid) {
+      try {
+        final platform = MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('cancelLiveTimer', {'id': baseId + 1000000});
+      } catch (e) {
+        debugPrint("❌ MethodChannel Cancel Error: $e");
+      }
+    }
+    
     await _plugin.cancel(baseId + 1000000); // Tracker / Alert (v15+)
     await _plugin.cancel(baseId + 10000);   // Legacy Tracker ID
     await _plugin.cancel(baseId + 20000);   // Legacy Alert ID
@@ -273,46 +284,48 @@ class NotificationService {
     
     if (localExpiry.isBefore(now)) return;
 
-    final androidDetails = AndroidNotificationDetails(
-      'smridge_urgent_v15',
-      'Smridge Emergency Protocol',
-      importance: Importance.max,
-      ongoing: true,
-      autoCancel: false,
-      showWhen: true,
-      usesChronometer: true,
-      chronometerCountDown: true,
-      when: localExpiry.millisecondsSinceEpoch,
-      icon: 'ic_notif',
-      color: const Color(0xFFFF004D),
-      category: AndroidNotificationCategory.reminder,
-      visibility: NotificationVisibility.public,
-      groupKey: 'com.example.smridge.TIMERS',
-      groupAlertBehavior: GroupAlertBehavior.all,
-      timeoutAfter: localExpiry.difference(now).inMilliseconds,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'dismiss_timer',
-          'DISMISS',
-          cancelNotification: true,
-        ),
-      ],
-    );
-
-    final details = NotificationDetails(android: androidDetails);
-    
-    try {
-      await _plugin.show(
-        trackerId, 
-        "🚨 LIVE EXPIRY: $itemName",
-        "Critical deadline at ${localExpiry.hour}:${localExpiry.minute}! 😱",
-        details,
-        payload: 'inventory:$itemName',
+    if (Platform.isAndroid) {
+      try {
+        final platform = MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('showLiveTimer', {
+          'id': trackerId,
+          'title': "🚨 LIVE EXPIRY: $itemName",
+          'targetTime': localExpiry.millisecondsSinceEpoch,
+          'payload': 'inventory:$itemName',
+        });
+      } catch (e) {
+        debugPrint("❌ MethodChannel Error: $e");
+      }
+    } else {
+      // Fallback for iOS
+      final androidDetails = AndroidNotificationDetails(
+        'smridge_urgent_v15',
+        'Smridge Emergency Protocol',
+        importance: Importance.max,
+        ongoing: true,
+        autoCancel: false,
+        showWhen: true,
+        usesChronometer: true,
+        chronometerCountDown: true,
+        when: localExpiry.millisecondsSinceEpoch,
+        icon: 'ic_notif',
+        color: const Color(0xFFFF004D),
+        category: AndroidNotificationCategory.reminder,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
       );
-    } catch (e) {
-      debugPrint("❌ SMRIDGE NOTIF Error: $e");
+      final details = NotificationDetails(android: androidDetails);
+      try {
+        await _plugin.show(
+          trackerId, 
+          "🚨 LIVE EXPIRY: $itemName",
+          "Critical deadline at ${localExpiry.hour}:${localExpiry.minute}! 😱",
+          details,
+          payload: 'inventory:$itemName',
+        );
+      } catch (e) {
+        debugPrint("❌ SMRIDGE NOTIF Error: $e");
+      }
     }
     
     // 🚨 Schedule intensive foreground alert
@@ -367,46 +380,60 @@ class NotificationService {
     final int baseId = (itemId ?? getStableId(itemName));
     final int trackerId = baseId + 1000000;
 
-    final androidDetails = AndroidNotificationDetails(
-      'smridge_urgent_v15',
-      'Smridge Emergency Protocol',
-      importance: Importance.max,
-      priority: Priority.max,
-      ongoing: true,
-      autoCancel: false,
-      showWhen: true,
-      usesChronometer: true,
-      chronometerCountDown: true,
-      when: localExpiry.millisecondsSinceEpoch,
-      icon: 'ic_notif',
-      color: const Color(0xFFFF004D), 
-      category: AndroidNotificationCategory.reminder,
-      visibility: NotificationVisibility.public,
-      groupKey: 'com.example.smridge.TIMERS',
-      groupAlertBehavior: GroupAlertBehavior.all,
-      timeoutAfter: localExpiry.difference(now).inMilliseconds,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'dismiss_timer',
-          'DISMISS',
-          cancelNotification: true,
-        ),
-      ],
-    );
-
-    final details = NotificationDetails(android: androidDetails);
-    
-    try {
-      await _plugin.show(
-        trackerId, 
-        "🚨 LIVE EXPIRY: $itemName",
-        "Critical deadline at $timeStr! 😱",
-        details,
-        payload: 'inventory:$itemName',
+    if (Platform.isAndroid) {
+      try {
+        final platform = MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('showLiveTimer', {
+          'id': trackerId,
+          'title': "🚨 LIVE EXPIRY: $itemName",
+          'targetTime': localExpiry.millisecondsSinceEpoch,
+          'payload': 'inventory:$itemName',
+        });
+      } catch (e) {
+        debugPrint("❌ MethodChannel Error: $e");
+      }
+    } else {
+      final androidDetails = AndroidNotificationDetails(
+        'smridge_urgent_v15',
+        'Smridge Emergency Protocol',
+        importance: Importance.max,
+        priority: Priority.max,
+        ongoing: true,
+        autoCancel: false,
+        showWhen: true,
+        usesChronometer: true,
+        chronometerCountDown: true,
+        when: localExpiry.millisecondsSinceEpoch,
+        icon: 'ic_notif',
+        color: const Color(0xFFFF004D), 
+        category: AndroidNotificationCategory.reminder,
+        visibility: NotificationVisibility.public,
+        groupKey: 'com.example.smridge.TIMERS',
+        groupAlertBehavior: GroupAlertBehavior.all,
+        timeoutAfter: localExpiry.difference(now).inMilliseconds,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
+        actions: <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'dismiss_timer',
+            'DISMISS',
+            cancelNotification: true,
+          ),
+        ],
       );
-    } catch (e) {}
+
+      final details = NotificationDetails(android: androidDetails);
+      
+      try {
+        await _plugin.show(
+          trackerId, 
+          "🚨 LIVE EXPIRY: $itemName",
+          "Critical deadline at $timeStr! 😱",
+          details,
+          payload: 'inventory:$itemName',
+        );
+      } catch (e) {}
+    }
   }
 
   Future<void> scheduleExpiryNotification(int id, String itemName, DateTime expiryDate) async {
@@ -471,46 +498,59 @@ class NotificationService {
       largeIcon = FilePathAndroidBitmap(imagePath);
     }
 
-    final androidDetails = AndroidNotificationDetails(
-      'smridge_urgent_v15',
-      'Smridge Emergency Protocol',
-      importance: Importance.max,
-      priority: Priority.max,
-      ongoing: true,
-      autoCancel: false,
-      showWhen: true,
-      usesChronometer: true,
-      chronometerCountDown: true,
-      when: targetTime.millisecondsSinceEpoch,
-      icon: 'ic_notif',
-      largeIcon: largeIcon,
-      color: const Color(0xFF00E5FF),
-      enableVibration: true,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
-      category: AndroidNotificationCategory.reminder,
-      visibility: NotificationVisibility.public,
-      timeoutAfter: targetTime.difference(now).inMilliseconds,
-      styleInformation: BigTextStyleInformation(
-        "⏱️ <b>DEADLINE APPROACHING: <font color='#00E5FF'>$itemName</font></b> at $timeStr",
-        contentTitle: "⚡ LIVE SMRIDGE TRACKER: $itemName",
-        htmlFormatContent: true,
-        htmlFormatContentTitle: true,
-      ),
-    );
-
-    final details = NotificationDetails(android: androidDetails);
-    
-    try {
-      await _plugin.show(
-        trackerId, 
-        "🧊⏳ REMINDER: $itemName",
-        "Deadline at $timeStr! ✨",
-        details,
-        payload: 'inventory:$itemName',
+    if (Platform.isAndroid) {
+      try {
+        final platform = MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('showLiveTimer', {
+          'id': trackerId,
+          'title': "⏳ REMINDER: $itemName",
+          'targetTime': targetTime.millisecondsSinceEpoch,
+          'payload': 'inventory:$itemName',
+        });
+      } catch (e) {
+        print("❌ Error: $e");
+      }
+    } else {
+      final androidDetails = AndroidNotificationDetails(
+        'smridge_urgent_v15',
+        'Smridge Emergency Protocol',
+        importance: Importance.max,
+        priority: Priority.max,
+        ongoing: true,
+        autoCancel: false,
+        showWhen: true,
+        usesChronometer: true,
+        chronometerCountDown: true,
+        when: targetTime.millisecondsSinceEpoch,
+        icon: 'ic_notif',
+        largeIcon: largeIcon,
+        color: const Color(0xFF00E5FF),
+        enableVibration: true,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
+        category: AndroidNotificationCategory.reminder,
+        visibility: NotificationVisibility.public,
+        timeoutAfter: targetTime.difference(now).inMilliseconds,
+        styleInformation: BigTextStyleInformation(
+          "⏱️ <b>DEADLINE APPROACHING: <font color='#00E5FF'>$itemName</font></b> at $timeStr",
+          contentTitle: "⚡ LIVE SMRIDGE TRACKER: $itemName",
+          htmlFormatContent: true,
+          htmlFormatContentTitle: true,
+        ),
       );
-    } catch (e) {
-      print("❌ Error: $e");
+
+      final details = NotificationDetails(android: androidDetails);
+      try {
+        await _plugin.show(
+          trackerId, 
+          "🧊⏳ REMINDER: $itemName",
+          "Deadline at $timeStr! ✨",
+          details,
+          payload: 'inventory:$itemName',
+        );
+      } catch (e) {
+        print("❌ Error: $e");
+      }
     }
   }
 

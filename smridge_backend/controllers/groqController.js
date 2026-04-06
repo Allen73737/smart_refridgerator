@@ -454,11 +454,12 @@ exports.suggestImage = async (req, res) => {
         const finalProjectedName = userName || detectedInfo.name;
         
         const searchTerm = `${finalProjectedName} ${detectedInfo.visual_description || ''} fresh photography`.trim();
-        const suggestedUrl = await fetchUnsplashImage(searchTerm);
+        const suggestedUrls = await fetchUnsplashImages(searchTerm, 6);
 
         res.json({
             image_url: cloudUrl,
-            suggested_url: suggestedUrl, 
+            suggested_url: suggestedUrls.length > 0 ? suggestedUrls[0] : null, // Legacy fallback
+            suggested_urls: suggestedUrls, // New array dropdown
             status: "success",
             detected_info: detectedInfo
         });

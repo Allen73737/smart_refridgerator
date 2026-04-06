@@ -62,12 +62,29 @@ exports.addDevice = async (req, res) => {
             return res.status(400).json({ message: "Device ID is required to link a fridge." });
         }
 
-        // Logic: Find and Update (Supports Reassignment as per Step 3)
-        const device = await Device.findOneAndUpdate(
-            { deviceId: deviceId.trim().toUpperCase() },
-            { userId, name: deviceName || "My Smridge", status: 'online', lastSeen: Date.now() },
-            { upsert: true, new: true }
-        );
+        // Logic: Find device. If exists, append to sharedWith. If not, create new owner.
+        let device = await Device.findOne({ deviceId: deviceId.trim().toUpperCase() });
+
+        if (device) {
+            // Device exists. If the scanner is not the owner, add them to sharedWith
+            if (String(device.userId) !== String(userId)) {
+                if (!device.sharedWith.includes(userId)) {
+                    device.sharedWith.push(userId);
+                }
+            }
+            device.status = 'online';
+            device.lastSeen = Date.now();
+            await device.save();
+        } else {
+            // New device registration (first owner)
+            device = await Device.create({
+                deviceId: deviceId.trim().toUpperCase(),
+                name: deviceName || "My Smridge",
+                userId: userId,
+                status: 'online',
+                lastSeen: Date.now()
+            });
+        }
 
         // Link Device ID to the User Object for easier global lookups
         await User.findByIdAndUpdate(userId, { deviceId: device._id });

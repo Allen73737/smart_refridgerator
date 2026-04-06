@@ -63,7 +63,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   final ImagePicker picker = ImagePicker();
   
   bool _isFetchingAiImage = false;
-  String? _aiSuggestedImageUrl;
+  List<String> _aiSuggestedImageUrls = [];
+  String? _selectedImageUrl;
   String? _originalLocalImagePath; 
 
   static const List<String> categoryOptions = [
@@ -354,8 +355,13 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       if (response.statusCode == 200) {
         final suggestedData = jsonDecode(response.body);
         setState(() {
-          _aiSuggestedImageUrl = suggestedData['suggested_url'];
-          imageUrl = _aiSuggestedImageUrl; 
+          if (suggestedData['suggested_urls'] != null) {
+            _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
+          } else if (suggestedData['suggested_url'] != null) {
+            _aiSuggestedImageUrls = [suggestedData['suggested_url']];
+          }
+          imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
+          _selectedImageUrl = imageUrl;
           _isFetchingAiImage = false;
         });
       } else {
@@ -373,7 +379,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         imagePath = picked.path;
         _originalLocalImagePath = picked.path; 
         _isFetchingAiImage = true;
-        _aiSuggestedImageUrl = null;
+        _aiSuggestedImageUrls = [];
+        _selectedImageUrl = null;
       });
 
       try {
@@ -405,7 +412,13 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                 selectedDate = DateTime.now().add(Duration(days: days));
                 expirySource = "estimated";
               }
-              _aiSuggestedImageUrl = suggestedData['suggested_url'];
+              if (suggestedData['suggested_urls'] != null) {
+                _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
+              } else if (suggestedData['suggested_url'] != null) {
+                _aiSuggestedImageUrls = [suggestedData['suggested_url']];
+              }
+              imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
+              _selectedImageUrl = imageUrl;
               _isFetchingAiImage = false;
             });
             _checkLiquid(nameController.text, categoryController.text);
@@ -419,6 +432,39 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           setState(() => _isFetchingAiImage = false);
       }
     }
+  }
+
+  void _showImagePickerBottomDialog() {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isLight = themeProvider.currentTheme == ThemeType.light;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isLight ? Colors.white : const Color(0xFF1E2A33),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: Icon(Icons.camera_alt, color: isLight ? Colors.teal : Colors.tealAccent),
+              title: Text('Take a photo (AI Magic)', style: TextStyle(color: isLight ? Colors.black87 : Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_library, color: isLight ? Colors.blue : Colors.blueAccent),
+              title: Text('Choose from gallery', style: TextStyle(color: isLight ? Colors.black87 : Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                pickImage(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildGlassInput({
@@ -660,6 +706,101 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           isLight: isLight,
                         ).animate().slideX(begin: -0.1).fade(delay: 250.ms),
                         
+                        const SizedBox(height: 15),
+
+                        GestureDetector(
+                          onTap: _showImagePickerBottomDialog,
+                          child: Container(
+                            height: 200,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: isLight ? Colors.transparent : Colors.white.withOpacity(0.15)),
+                            ),
+                            child: _isFetchingAiImage
+                              ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+                              : (imagePath != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Image.file(File(imagePath!), fit: BoxFit.cover),
+                                  )
+                                : (imageUrl != null && imageUrl!.isNotEmpty
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: CachedNetworkImage(
+                                          imageUrl: imageUrl!,
+                                          fit: BoxFit.cover,
+                                          placeholder: (c, u) => const Center(child: CircularProgressIndicator()),
+                                          errorWidget: (c, u, e) => const Center(child: Icon(Icons.image_not_supported, size: 40, color: Colors.grey)),
+                                        ),
+                                      )
+                                    : Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.add_a_photo_outlined, size: 40, color: isLight ? Colors.teal : Colors.tealAccent),
+                                            const SizedBox(height: 10),
+                                            Text("Add Item Photo", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70)),
+                                            const SizedBox(height: 5),
+                                            Text("AI will auto-fill details!", style: TextStyle(fontSize: 12, color: isLight ? Colors.teal : Colors.tealAccent)),
+                                          ],
+                                        ),
+                                      )
+                                  )
+                              ),
+                          ),
+                        ).animate().slideX(begin: 0.1).fade(delay: 300.ms),
+
+                        if (_aiSuggestedImageUrls.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 15),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Select a photo:", style: TextStyle(color: isLight ? Colors.teal : Colors.tealAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  height: 70,
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: _aiSuggestedImageUrls.length,
+                                    itemBuilder: (context, index) {
+                                      final img = _aiSuggestedImageUrls[index];
+                                      final isSelected = _selectedImageUrl == img;
+                                      return GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            _selectedImageUrl = img;
+                                            imageUrl = img;
+                                            imagePath = null;
+                                          });
+                                        },
+                                        child: Container(
+                                          width: 70,
+                                          margin: const EdgeInsets.only(right: 10),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(color: isSelected ? (isLight ? Colors.teal : Colors.tealAccent) : Colors.transparent, width: 3),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(8),
+                                            child: CachedNetworkImage(
+                                              imageUrl: img,
+                                              fit: BoxFit.cover,
+                                              placeholder: (c, u) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                              errorWidget: (c, u, e) => const Icon(Icons.error),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ).animate().slideX(begin: 0.1).fade(delay: 350.ms),
+                          ),
+
                         const SizedBox(height: 35),
 
                         SizedBox(
