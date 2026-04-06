@@ -243,13 +243,19 @@ class ApiService {
     return false;
   }
 
-  static Future<Map<String, dynamic>?> scanBarcode(String barcode) async {
+  static Future<Map<String, dynamic>?> scanBarcode(String barcode, {String? token}) async {
     try {
+      final tok = token ?? await SecureStorageService.getToken();
+      final url = Uri.parse('$baseDomain/api/barcode/$barcode');
+      print("📡 [Barcode] Scanning: $url");
       final response = await http.get(
-        Uri.parse('$baseUrl/barcode/$barcode'),
-      );
+        url,
+        headers: {'x-auth-token': tok ?? ''},
+      ).timeout(const Duration(seconds: 20));
+      print("📋 [Barcode] Response [${response.statusCode}]: ${response.body}");
       if (response.statusCode == 200) return jsonDecode(response.body);
-    } catch (e) { print("Barcode Scan Error: $e"); }
+      print("⚠️ [Barcode] Scan failed with status: ${response.statusCode}");
+    } catch (e) { print("❌ Barcode Scan Error: $e"); }
     return null;
   }
 
@@ -681,6 +687,21 @@ class ApiService {
       if (response.statusCode == 200) return jsonDecode(response.body);
     } catch (e) {
       print("❌ [API] Fetch Device Data Error: $e");
+    }
+    return null;
+  }
+
+  /// 🆕 Clean sensor poll — no deviceId needed, backend resolves userId from JWT
+  static Future<Map<String, dynamic>?> getLatestSensorDataDirect(String token) async {
+    try {
+      final url = Uri.parse('$sensorUrl/latest');
+      final response = await http.get(
+        url,
+        headers: {'x-auth-token': token},
+      ).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) return jsonDecode(response.body);
+    } catch (e) {
+      print("❌ [API] Direct Sensor Fetch Error: $e");
     }
     return null;
   }

@@ -1,3 +1,20 @@
+/// @file onboarding_screen.dart
+/// @description The first-run onboarding experience shown to new Smridge users.
+///
+/// Displays 3 swipeable pages, each introducing a core Smridge feature:
+///   1. Smart Vision: AI-powered food recognition.
+///   2. Fortified Security: PIN-based local encryption.
+///   3. Real-time Pulse: Instant expiry and sensor notifications.
+///
+/// On completion / skip:
+///   - Writes a flag to [SecureStorageService] so the onboarding never shows again.
+///   - Navigates to [LoginScreen] via a custom [FadeSlidePageRoute] transition.
+///
+/// UI Highlights:
+///   - Animated background glow reacts to the current page's theme color.
+///   - Progress indicators animate between a small dot and a wide pill shape.
+///   - Final page button label changes from "NEXT Phase" to "ENTER SMRIDGE".
+
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';

@@ -10,6 +10,7 @@ import '../core/page_transitions.dart';
 import '../services/audio_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/sensor_provider.dart'; // 🔑 Added
 import '../services/secure_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
@@ -62,6 +63,12 @@ class _SplashIntroState extends State<SplashIntro> with TickerProviderStateMixin
     final isBiometricEnabled = await SecureStorageService.isBiometricEnabled();
 
     if (token != null) {
+      // 🔑 Join user's socket room immediately so ESP32 events start flowing
+      final userId = await SecureStorageService.getUserId();
+      if (userId != null && mounted) {
+        context.read<SensorProvider>().initForUser(userId);
+      }
+
       if (isBiometricEnabled) {
         // 🔐 Biometric users go to Login screen for auth
         Navigator.pushReplacement(context, FadeSlidePageRoute(page: const LoginScreen()));

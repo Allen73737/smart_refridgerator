@@ -1,3 +1,18 @@
+/**
+ * @file itemController.js
+ * @description Manages all CRUD operations for food items in the Smridge fridge inventory.
+ *
+ * Key Responsibilities:
+ *   - addItem: Creates a new item, handles image upload (Cloudinary or local), calculates
+ *              initial freshness score, and notifies the user.
+ *   - getItems: Fetches the user's inventory, recalculating freshness scores live on every fetch.
+ *   - updateItem: Edits an existing item, re-uploads AI images to Cloudinary for persistence.
+ *   - deleteItem: Permanently removes an item and broadcasts the event via Socket.io.
+ *
+ * All write operations emit real-time "inventory_update" Socket.io events so the
+ * 3D fridge UI on the Flutter app updates instantly without a page refresh.
+ */
+
 const Item = require("../models/Item");
 const NotificationModel = require("../models/Notification");
 const axios = require("axios");
@@ -10,7 +25,20 @@ const activityState = require("../utils/activityState");
 const { createAndSendAlert } = require("../utils/notificationUtils");
 
 
-// 🟢 Add Item with Image
+// ─── ADD ITEM ─────────────────────────────────────────────────────────────────
+
+/**
+ * @function addItem
+ * @route POST /api/items
+ * @description Adds a new food item to the user's fridge inventory.
+ * Steps:
+ *   1. Reads the current sensor weight to pre-fill the item weight if not provided.
+ *   2. Marks the addition in activityState to suppress false "weight added" sensor alerts.
+ *   3. Estimates expiry date if one is not provided, based on item category keywords.
+ *   4. Handles image: uses AI-suggested URL if given, uploads to Cloudinary if external.
+ *   5. Creates and saves the item to MongoDB, then calculates dynamic freshness.
+ *   6. Emits "inventory_update" via Socket.io and sends an in-app notification.
+ */
 exports.addItem = async (req, res) => {
   try {
     console.log("--- 📥 New AddFood Request Received ---");
@@ -137,7 +165,16 @@ exports.addItem = async (req, res) => {
 
 
 
-// 🟢 Get All Items + Expiry Detection
+// ─── GET ITEMS ────────────────────────────────────────────────────────────────
+
+/**
+ * @function getItems
+ * @route GET /api/items
+ * @description Fetches all food items for the currently authenticated user.
+ * - Recalculates the `freshnessScore` for every item live on each fetch so the
+ *   UI always reflects the real current state (accounting for elapsed time & sensors).
+ * - Saves updated freshness back to MongoDB to keep history consistent.
+ */
 exports.getItems = async (req, res) => {
   try {
     console.log(`🔍 Fetching Items for User: ${req.user.id}`);
@@ -161,7 +198,18 @@ exports.getItems = async (req, res) => {
 
 
 
-// 🟢 Update Item
+// ─── UPDATE ITEM ──────────────────────────────────────────────────────────────
+
+/**
+ * @function updateItem
+ * @route PUT /api/items/:id
+ * @description Updates an existing food item's details.
+ * - Sanitizes the `notes` field to strip any AI-generated content that may have
+ *   accidentally been written there (preserves user-written notes only).
+ * - Handles image replacement: re-uploads external AI images to Cloudinary for persistence.
+ * - If a new `reminderDate` is set, it clears the old "reminder_sent" notification flag.
+ * - Recalculates freshness after update and emits a Socket.io event.
+ */
 exports.updateItem = async (req, res) => {
   try {
     console.log("--- 🔄 Update Request Received ---");
@@ -237,7 +285,15 @@ exports.updateItem = async (req, res) => {
 
 
 
-// 🟢 Delete Item
+// ─── DELETE ITEM ──────────────────────────────────────────────────────────────
+
+/**
+ * @function deleteItem
+ * @route DELETE /api/items/:id
+ * @description Permanently deletes a food item from the inventory.
+ * - Emits a "delete" Socket.io event so the 3D fridge UI removes the item immediately.
+ * - Logs the deletion with the item's name (not just the ID) for a readable audit trail.
+ */
 exports.deleteItem = async (req, res) => {
   try {
     const item = await Item.findById(req.params.id);

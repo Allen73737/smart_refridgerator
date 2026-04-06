@@ -1,3 +1,22 @@
+/**
+ * @file sensorController.js
+ * @description Processes incoming IoT sensor telemetry from physical ESP32 hardware.
+ *
+ * Key Responsibilities:
+ *   - receiveSensorData: The primary endpoint called by the ESP32 every few seconds.
+ *     It validates data, performs device identity lookup with auto-provisioning fallback,
+ *     calculates overall freshness, emits real-time socket events, persists sensor history,
+ *     and triggers priority-based alerts (gas, temperature, humidity, door, freshness).
+ *   - getLatestSensorData: Returns unified sensor snapshot for the authenticated user,
+ *     using the same sensorService layer as the AI and Socket systems for 100% data parity.
+ *
+ * Design Decisions:
+ *   - DB writes are THROTTLED (10s minimum between writes) to prevent hammering MongoDB.
+ *   - ESP32 without a deviceId is auto-tagged as "LEGACY_ESP32_001" for backward compatibility.
+ *   - Sensor readings are offset per user (using a deterministic seed from userId) to
+ *     create unique, realistic readings for each account when sharing hardware in demos.
+ */
+
 const SensorData = require("../models/SensorData");
 const User = require("../models/User");
 const NotificationModel = require("../models/Notification");
@@ -6,7 +25,7 @@ const socketManager = require("../utils/socketManager");
 const logActivity = require("../utils/activityLogger");
 const Threshold = require("../models/Threshold");
 const FridgeStatus = require("../models/FridgeStatus");
-const Device = require("../models/Device"); // 🔑 Added for identity lookup
+const Device = require("../models/Device");
 
 const { calculateOverallFreshness, getAlertDetails } = require("../utils/freshnessUtils");
 const sensorService = require("../utils/sensorService");
@@ -14,19 +33,35 @@ const activityState = require("../utils/activityState");
 const { createAndSendAlert } = require("../utils/notificationUtils");
 const Item = require("../models/Item");
 
-// Threshold Configurations
+// Default alert threshold constants (can be overridden by admin via Threshold model)
 const TEMP_THRESHOLD = 8;
 const GAS_THRESHOLD = 300;
 
-// In-memory throttle to prevent database hammering
+// In-memory throttle map: prevents writing a new DB row more than once per 10 seconds per user
 const lastSyncCache = new Map();
 const DB_SYNC_THROTTLE_MS = 10000; // 10 seconds
 
-// Door Open Tracker
+// Door open time tracking: triggers alert if door is left open > 2 minutes
 let doorOpenStartTime = null;
 let doorOpenAlertSent = false;
 
-// Receive Data from ESP32
+// ─── RECEIVE SENSOR DATA ──────────────────────────────────────────────────────
+
+/**
+ * @function receiveSensorData
+ * @route POST /api/sensors/data
+ * @description The primary endpoint for ESP32 hardware data ingestion.
+ * Full pipeline:
+ *   1. Backward-compatibility: assigns LEGACY_ESP32_001 if no deviceId is sent.
+ *   2. Validates and casts raw string sensor values to proper numbers.
+ *   3. Looks up the device's owner in DB (Device model). Auto-provisions if first ping.
+ *   4. Applies a per-user deterministic offset for unique demo data.
+ *   5. Calculates overall freshness score from all sensor inputs + inventory items.
+ *   6. Emits real-time "sensor_data" event ONLY to the fridge owner's Socket.io room.
+ *   7. Responds to the ESP32 immediately (before async DB operations).
+ *   8. Throttled: writes SensorData history and updates FridgeStatus every 10 seconds.
+ *   9. Triggers priority alerts: food spoilage, high temp, bad gas, humidity, door open, weight events.
+ */
 exports.receiveSensorData = async (req, res) => {
   try {
     let { deviceId, temperature, humidity, gasLevel, weight, doorStatus } = req.body;
@@ -344,7 +379,17 @@ exports.receiveSensorData = async (req, res) => {
   }
 };
 
-// 🟢 Get Latest Sensor Data for specific User (Ensures 100% Parity with AI & Analytics)
+// ─── GET LATEST SENSOR DATA ───────────────────────────────────────────────────
+
+/**
+ * @function getLatestSensorData
+ * @route GET /api/sensors/latest
+ * @description Returns the most current sensor snapshot for the authenticated user.
+ * - Uses sensorService.getCurrentSensors for unified data retrieval, ensuring
+ *   100% parity with data used by the AI and WebSocket systems.
+ * - Falls back to the last-known-good state or simulation data if no real hardware
+ *   is currently connected.
+ */
 exports.getLatestSensorData = async (req, res) => {
   try {
     const userId = req.user.id;

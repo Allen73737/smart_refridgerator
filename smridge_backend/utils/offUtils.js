@@ -14,7 +14,7 @@ exports.fetchProductByBarcode = async (barcode) => {
             console.log(`📡 [OFF] Attempting ${sub} subdomain: ${url}`);
             
             const response = await axios.get(url, {
-                timeout: 4000,
+                timeout: 8000,  // Increased from 4s to 8s
                 headers: { 
                     'User-Agent': `SmridgeApp - Android/iOS - 1.0 - contact@smridge.com`,
                     'Accept': 'application/json'
@@ -24,13 +24,17 @@ exports.fetchProductByBarcode = async (barcode) => {
             const data = response.data;
             // 🛡️ Robust status check: 1 = Found, 0 = Not Found
             if (data.status == 1 && data.product) {
-                console.log(`✅ [OFF] Product found on ${sub} server!`);
+                console.log(`✅ [OFF] Product found on ${sub} server! Name: ${data.product.product_name || 'N/A'}`);
                 return data.product;
             } else {
-                console.log(`⚠️ [OFF] Product not found on ${sub} server (Status: ${data.status})`);
+                console.log(`⚠️ [OFF] Status ${data.status} on ${sub}. verbose: ${data.status_verbose || 'N/A'}`);
             }
         } catch (err) {
-            console.error(`❌ [OFF] Error on ${sub} server:`, err.message);
+            if (err.code === 'ECONNABORTED') {
+                console.error(`⏱️ [OFF] Timeout on ${sub} subdomain (8s exceeded)`);
+            } else {
+                console.error(`❌ [OFF] Error on ${sub} server: ${err.message}`);
+            }
         }
     }
     

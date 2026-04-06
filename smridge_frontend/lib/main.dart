@@ -1,3 +1,16 @@
+/// @file main.dart
+/// @description The entry point for the Smridge Flutter application.
+///
+/// Startup sequence:
+///   1. Wakes up the cloud backend immediately (cold start mitigation).
+///   2. Initializes Firebase (required for push notifications & FCM).
+///   3. Initializes HapticService and ApiService in parallel.
+///   4. Initializes the NotificationService (local + Firebase foreground listener).
+///   5. Connects the Socket.io client to the backend WebSocket server.
+///   6. Fetches admin-configured alert thresholds (non-blocking).
+///   7. Injects all global Provider state managers (Theme, Customization, Sensor, etc.).
+///   8. Renders the root [SmridgeApp] widget with the correct theme.
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -10,18 +23,19 @@ import 'firebase_options.dart';
 import 'screens/splash_intro.dart';
 import 'screens/home_screen.dart';
 import 'services/secure_storage_service.dart';
-import 'services/api_service.dart'; // 🔹 Added
+import 'services/api_service.dart';
 import 'services/notification_service.dart';
-import 'services/socket_service.dart'; // 🔹 Added
-import 'services/haptic_service.dart'; // 🔹 New
+import 'services/socket_service.dart';
+import 'services/haptic_service.dart';
 import 'providers/theme_provider.dart';
 import 'providers/fridge_customization_provider.dart';
 import 'providers/connectivity_provider.dart';
-import 'providers/sensor_provider.dart'; // 🚀 Added
+import 'providers/sensor_provider.dart';
 import 'config/app_themes.dart';
 import 'config/app_settings.dart';
 
-// 🔥 Global Navigator Key for Deep Linking
+/// Global Navigator Key — used for deep-linking (opening specific screens
+/// from a Firebase push notification tap, even when the app is in the background).
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // 🔥 Background handler (required for notifications when app is closed)

@@ -1,9 +1,33 @@
+/**
+ * @file authController.js
+ * @description Handles all user authentication flows for Smridge.
+ *
+ * Supported auth methods:
+ *   1. Email/Password (bcrypt hashed, JWT issued on success)
+ *   2. Google OAuth 2.0 (ID Token verified via Google Auth Library)
+ *
+ * All successful logins result in a 30-day JWT token that the Flutter
+ * app stores securely and sends in the "x-auth-token" header for every
+ * subsequent protected API call.
+ */
+
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const logActivity = require("../utils/activityLogger");
 
+// ─── EMAIL / PASSWORD AUTH ─────────────────────────────────────────────────────
+
+/**
+ * @function signup
+ * @route POST /api/auth/signup
+ * @description Registers a new user with email and password.
+ * - Checks for duplicate email in the database.
+ * - Creates the user (password is auto-hashed by the User model's pre-save hook).
+ * - Issues a 30-day JWT token to immediately log the user in after registration.
+ * - Logs the registration event to the activity log.
+ */
 exports.signup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -23,6 +47,15 @@ exports.signup = async (req, res) => {
   }
 };
 
+/**
+ * @function login
+ * @route POST /api/auth/login
+ * @description Authenticates an existing email/password user.
+ * - Validates the email exists in DB and the authProvider is 'email'.
+ * - Uses `matchPassword` (bcrypt compare) to verify the password hash.
+ * - Checks if the user account has been blocked by an admin.
+ * - Updates `lastActive` timestamp and issues a fresh JWT.
+ */
 exports.login = async (req, res) => {
   try {
     let { email, password } = req.body;
@@ -69,6 +102,18 @@ exports.login = async (req, res) => {
   }
 };
 
+// ─── GOOGLE OAUTH ──────────────────────────────────────────────────────────────
+
+/**
+ * @function googleLogin
+ * @route POST /api/auth/google
+ * @description Authenticates a user via Google Sign-In.
+ * - Receives a Google `idToken` from the Flutter Google Sign-In package.
+ * - Verifies the token against Google's servers using the OAuth2Client.
+ * - If the email already exists in DB (previously email user), migrates them to Google auth.
+ * - If the email is new, creates a new user record with a random dummy password (not used).
+ * - Checks if the account is blocked, then issues a JWT.
+ */
 exports.googleLogin = async (req, res) => {
   try {
     const { idToken } = req.body;

@@ -1,8 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'signup_screen.dart';
 import 'home_screen.dart';
 import 'add_device_screen.dart';
@@ -11,6 +11,7 @@ import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
 import '../services/secure_storage_service.dart';
+import '../providers/sensor_provider.dart'; // 🔑 Added
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -43,6 +44,11 @@ class _LoginScreenState extends State<LoginScreen> {
         final userId = data['user']['_id'];
         await SecureStorageService.saveToken(token);
         await SecureStorageService.saveUserId(userId);
+
+        // 🔑 CRITICAL: Join socket room so ESP32 sensor events start flowing to this device
+        if (mounted) {
+          context.read<SensorProvider>().initForUser(userId);
+        }
 
         // 🔹 Check if user has a device
         final devices = await ApiService.getUserDevices(token);

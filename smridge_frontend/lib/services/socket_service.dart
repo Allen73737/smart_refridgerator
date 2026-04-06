@@ -1,3 +1,22 @@
+/// @file socket_service.dart
+/// @description Manages the persistent WebSocket (Socket.io) connection to the backend.
+///
+/// Architecture:
+///   - A single static [IO.Socket] instance is maintained throughout the app's lifecycle.
+///   - A [_registry] Map stores all event listeners so they can be automatically
+///     re-applied when the socket reconnects or the backend URL changes.
+///
+/// Key behaviors:
+///   - On connect: Emits a "register" event with the user's ID so the server can
+///     add this socket to the correct private room (user_<userId>).
+///   - [on] / [off]: Register/unregister event listeners. Listeners are also tracked
+///     in the registry to survive reconnections.
+///   - Auto-reconnects: Listens for URL changes from [ApiService] and re-initializes
+///     the socket to the new server address automatically.
+///
+/// This service is the bridge between [SensorProvider] and the backend's real-time
+/// sensor data pushes.
+
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'api_service.dart';
 import 'secure_storage_service.dart';
@@ -103,6 +122,23 @@ class SocketService {
     } else {
       _registry.remove(event);
       _socket?.off(event);
+    }
+  }
+
+  /// 🔑 Explicitly join a user's event room.
+  /// Call this AFTER the user logs in / token is retrieved to ensure
+  /// the backend routes targeted ESP32 sensor_data events to this device.
+  static void joinUserRoom(String userId) {
+    if (_socket == null) init();
+    if (_socket!.connected) {
+      _socket!.emit('register', userId);
+      print('🔑 [Socket] Re-joined room for user: $userId');
+    } else {
+      // Socket not connected yet — emit 'register' once it connects
+      _socket!.once('connect', (_) {
+        _socket!.emit('register', userId);
+        print('🔑 [Socket] Deferred room join for user: $userId (after connect)');
+      });
     }
   }
 

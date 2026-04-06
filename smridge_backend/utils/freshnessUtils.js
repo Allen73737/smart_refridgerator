@@ -1,3 +1,26 @@
+/**
+ * @file freshnessUtils.js
+ * @description The mathematical core of the Smridge freshness scoring system.
+ *
+ * This module provides TWO levels of freshness calculation:
+ *
+ *  1. calculateOverallFreshness (Macro / Fridge-Level):
+ *     Aggregates ALL environmental sensor inputs into one fridge-wide score.
+ *     Uses a weighted formula: Gas(30%) + Temp(20%) + Humidity(20%) + Expiry(30%)
+ *     Used by: sensorController, Socket broadcasts, Analytics dashboard.
+ *
+ *  2. calculateFreshness (Micro / Per-Item):
+ *     Calculates the freshness for a SINGLE inventory item.
+ *     Combines the item's remaining shelf life with real-time sensor readings.
+ *     Used by: AI analysis, item CRUD operations, chat assistant context.
+ *
+ *  Sensor-to-Score Mapping:
+ *    - MQ135 Gas: Detects Ammonia & Ethanol (rot byproducts). > 1500ppm = score 0.
+ *    - Temperature: Ideal 2-8°C. Every degree outside this range reduces score by 10.
+ *    - Humidity: Ideal 30-60%. Every 0.5% outside range reduces score by 1.
+ *    - Expiry: Linear decay. >5 days left = 100, 1 day left = 20, expired = 0.
+ */
+
 const SensorData = require("../models/SensorData");
 
 /**

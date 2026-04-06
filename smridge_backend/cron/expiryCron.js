@@ -1,10 +1,32 @@
+/**
+ * @file expiryCron.js
+ * @description Automated background job that runs every minute to check food expiry.
+ *
+ * How it works:
+ *   - Scans every item in the entire Inventory collection.
+ *   - Checks whether the item's expiry is within any predefined time windows
+ *     (72h, 48h, 24h, 12h, 6h, 3h, 2h, 1h, 30m, 10m, or "expired").
+ *   - Sends notifications via THREE channels simultaneously:
+ *       1. MongoDB NotificationModel (persists in the notification history)
+ *       2. Socket.io targeted event (updates the badge counter in real-time on the UI)
+ *       3. Firebase Cloud Messaging (FCM) push (pings the phone even when app is closed)
+ *   - Tracks which intervals have already been notified in `item.notifiedIntervals`
+ *     to prevent duplicate alerts.
+ *   - Also handles CUSTOM REMINDERS set by the user for specific items.
+ *
+ * Stable Notification ID:
+ *   - Each item name is hashed to a stable integer (`getStableId`).
+ *   - This ensures that repeat alerts for the same item don't create
+ *     duplicate system notification entries on Android.
+ */
+
 const cron = require("node-cron");
 const Item = require("../models/Item");
 const NotificationModel = require("../models/Notification");
 const User = require("../models/User");
 const sendPushNotification = require("../utils/sendPush");
 const socketManager = require("../utils/socketManager");
-const crypto = require("crypto"); // 🔐 Added for stable ID hashing
+const crypto = require("crypto");
 
 // 📐 Aligned with Frontend stableId logic: hashCode % 100000
 const getStableId = (str) => {
