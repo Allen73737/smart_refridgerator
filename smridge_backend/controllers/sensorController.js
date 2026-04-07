@@ -187,7 +187,7 @@ exports.receiveSensorData = async (req, res) => {
         hum += userHumOffset;
 
         // Save latest known state & get calibrated values
-        const previousState = sensorService.updateLastKnown({
+        const { previousState, weightDelta } = sensorService.updateLastKnown({
           temperature: temp,
           humidity: hum,
           gasLevel,
@@ -249,6 +249,32 @@ exports.receiveSensorData = async (req, res) => {
           timestamp: new Date()
         });
 
+        // ⚖️ WEIGHT ALERTS — fired immediately on every detected event, NOT inside the throttle.
+        // If we put these inside the 10-second DB throttle, weight changes that happen
+        // between throttle windows are silently dropped (event reverts to 'no_change' by next write).
+        if (weightEvent === "added") {
+          const recentlyAdded = activityState.wasRecentlyAddedViaApp(currentUser._id);
+          if (!recentlyAdded) {
+            // Include deep-link payload so the user can tap the notification to open Add Inventory
+            createAndSendAlert(
+              currentUser,
+              "inventory",
+              "Weight Added ⚖️",
+              `New item detected! +${weightDelta}g placed in the fridge. Tap to register it. 🧄`,
+              "#4CAF50",
+              { route: '/add_inventory', recordedWeight: calibratedWeight.toString() }
+            );
+          }
+        } else if (weightEvent === "removed") {
+          createAndSendAlert(
+            currentUser,
+            "inventory",
+            "Item Removed ⚖️",
+            `Something was taken out! −${weightDelta}g removed from the fridge. 🧄`,
+            "#FF9800"
+          );
+        }
+
         // Throttle DB writes per user
         if (!lastSyncCache.has(syncKey) || now - lastSyncCache.get(syncKey) >= DB_SYNC_THROTTLE_MS) {
             lastSyncCache.set(syncKey, now);
@@ -302,20 +328,6 @@ exports.receiveSensorData = async (req, res) => {
 
             if (gasLevel > G_LIMIT) {
               createAndSendAlert(currentUser, "spoilage", "Spoilage Detected", `Unusual gas levels detected: ${gasLevel}. Check for spoiled food.`, "#FF5722");
-            }
-
-            // ⚖️ WEIGHT ADDITION ALERT (Dual-Channel)
-            if (weightEvent === "added") {
-              const recentlyAdded = activityState.wasRecentlyAddedViaApp(currentUser._id);
-              if (!recentlyAdded) {
-                createAndSendAlert(currentUser, "inventory", "Weight Added", `A new weight of ${calibratedWeight}g was detected. Tap to register the item! 🧊`, "#4CAF50", { route: '/add_inventory', recordedWeight: calibratedWeight.toString() });
-              }
-            }
-
-            // ⚖️ WEIGHT REMOVAL ALERT (Dual-Channel)
-            if (weightEvent === "removed") {
-                const removedWeight = Math.round(Math.abs(calibratedWeight - (previousState?.weight ?? calibratedWeight)));
-                createAndSendAlert(currentUser, "inventory", "Item Removed", `Something was just removed! Weight decreased by ${removedWeight}g. 🧊`, "#FF9800");
             }
 
             if (hum > 80) {

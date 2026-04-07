@@ -9,10 +9,11 @@ const CHANGE_THRESHOLD = 10;  // Grams (detect meaningful change)
 const BUFFER_SIZE = 10;       // Number of readings for smoothing
 
 // --- 🛡️ STATE TRACKERS ---
-const rawBuffers = new Map(); // deviceId -> array of raw values
-const previousWeights = new Map(); // deviceId -> weight
-const userStates = new Map(); // userId -> lastState
-const userHardwareTimestamps = new Map(); // userId -> lastHardwareTimestamp
+const rawBuffers = new Map();             // deviceId -> array of raw values
+const deviceWeights = new Map();          // deviceId -> calibrated weight (shared physics baseline)
+const userPrevWeights = new Map();        // userId   -> previous calibrated weight per user (for delta alerts)
+const userStates = new Map();             // userId   -> lastState
+const userHardwareTimestamps = new Map(); // userId   -> lastHardwareTimestamp
 const userSimulationTimestamps = new Map(); // userId -> lastSimulationTimestamp
 
 const DEFAULT_STATE = {
@@ -28,52 +29,70 @@ const DEFAULT_STATE = {
  * Updates the state with real data from ESP32.
  * Performs calibration, smoothing, and change detection.
  */
+/**
+ * Updates the in-memory sensor state with a new ESP32 reading.
+ * Performs:
+ *   - Moving-average smoothing over the last BUFFER_SIZE raw readings
+ *   - Load cell calibration (raw → grams)
+ *   - Noise filtering (ignores changes < NOISE_THRESHOLD grams)
+ *   - Per-USER weight change detection (added / removed)
+ *
+ * Returns the previous state snapshot AND the signed weight delta so
+ * the controller can build accurate alert messages without recomputing.
+ *
+ * @param {Object} data      - Sensor payload { temperature, humidity, gasLevel, weight, doorStatus }
+ * @param {string} deviceId  - Physical hardware ID (used for shared smoothing buffer)
+ * @param {string} userId    - Authenticated user ID (used for per-user weight baseline)
+ * @returns {{ previousState, weightDelta }} - Previous state object and grams added/removed
+ */
 exports.updateLastKnown = (data, deviceId = "DEFAULT", userId = "GLOBAL") => {
     userId = String(userId);
     const previous = { ...(userStates.get(userId) || DEFAULT_STATE) };
-    
-    // 1. Maintain Smoothing Buffer
+
+    // ── 1. Smoothing Buffer (shared per physical device) ──────────────────────
     if (!rawBuffers.has(deviceId)) rawBuffers.set(deviceId, []);
     const buffer = rawBuffers.get(deviceId);
-    
-    // The incoming 'weight' is the RAW value from the load cell
     buffer.push(Number(data.weight));
     if (buffer.length > BUFFER_SIZE) buffer.shift();
-    
-    // 2. Compute Smoothing (Moving Average)
+
+    // ── 2. Moving Average ─────────────────────────────────────────────────────
     const avgRaw = buffer.reduce((a, b) => a + b, 0) / buffer.length;
-    
-    // 3. Weight Calculation
+
+    // ── 3. Calibration: raw ADC value → grams ─────────────────────────────────
     let calibratedWeight = (avgRaw - OFFSET) / SCALE;
-    
-    // 4. Noise Filtering
+
+    // ── 4. Noise Filter ───────────────────────────────────────────────────────
     if (calibratedWeight < NOISE_THRESHOLD) calibratedWeight = 0;
-    
-    // 5. Change Detection
-    const prevWeight = previousWeights.get(deviceId) || 0;
+    calibratedWeight = Math.round(calibratedWeight * 100) / 100; // 2 decimal places
+
+    // ── 5. Per-USER Change Detection (correct baseline per account) ───────────
+    const prevUserWeight = userPrevWeights.get(userId) ?? deviceWeights.get(deviceId) ?? 0;
     let event = "no_change";
-    
-    if (calibratedWeight > prevWeight + CHANGE_THRESHOLD) {
+    let weightDelta = 0;
+
+    if (calibratedWeight > prevUserWeight + CHANGE_THRESHOLD) {
         event = "added";
-    } else if (calibratedWeight < prevWeight - CHANGE_THRESHOLD) {
+        weightDelta = Math.round(calibratedWeight - prevUserWeight); // positive grams
+    } else if (calibratedWeight < prevUserWeight - CHANGE_THRESHOLD) {
         event = "removed";
+        weightDelta = Math.round(prevUserWeight - calibratedWeight); // positive grams (how much removed)
     }
-    
-    // 6. Update Persistent References
-    previousWeights.set(deviceId, calibratedWeight);
-    
-    // 7. Update User Specific State
-    const newState = { 
-        ...data, 
-        weight: Math.round(calibratedWeight * 100) / 100, // Round to 2 decimals
-        event 
+
+    // ── 6. Update Baselines ───────────────────────────────────────────────────
+    deviceWeights.set(deviceId, calibratedWeight);   // shared physics baseline
+    userPrevWeights.set(userId, calibratedWeight);    // per-user so each account tracks independently
+
+    // ── 7. Persist User State ─────────────────────────────────────────────────
+    const newState = {
+        ...data,
+        weight: calibratedWeight,
+        event
     };
-    
     userStates.set(userId, newState);
     userHardwareTimestamps.set(userId, Date.now());
     userSimulationTimestamps.set(userId, Date.now());
-    
-    return previous;
+
+    return { previousState: previous, weightDelta };
 };
 
 /**
