@@ -79,11 +79,15 @@ class InventoryItem {
       'litres': litres,
       'barcode': barcode,
       'brand': brand,
-      'expiryDate': expiryDate.toIso8601String(),
+      // 🕐 Always serialize to UTC so the backend stores correct absolute time.
+      // fromJson() calls .toLocal() on read, giving the correct local display time.
+      // Without .toUtc(), local times (e.g. IST) are sent without a timezone suffix,
+      // causing the server to misinterpret them as UTC → 5h 30m timer offset.
+      'expiryDate': expiryDate.toUtc().toIso8601String(),
       'expirySource': expirySource,
-      'reminderDate': reminderDate?.toIso8601String(),
+      'reminderDate': reminderDate?.toUtc().toIso8601String(),
       'notes': notes,
-      'dateAdded': dateAdded.toIso8601String(),
+      'dateAdded': dateAdded.toUtc().toIso8601String(),
       'imagePath': imagePath,
       'image': imageUrl, // 💎 Aligned with Backend 'image' field
     };
