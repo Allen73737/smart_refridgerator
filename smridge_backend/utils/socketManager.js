@@ -1,5 +1,5 @@
 const { Server } = require("socket.io");
-const { getSensorScore } = require("./freshnessUtils");
+const { calculateOverallFreshness } = require("./freshnessUtils");
 const User = require("../models/User");
 const Threshold = require("../models/Threshold");
 const simulationUtils = require("./simulationUtils");

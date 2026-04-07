@@ -63,10 +63,14 @@ class MainActivity : FlutterActivity() {
             manager.createNotificationChannel(channel)
         }
 
+        // Chronometer requires SystemClock.elapsedRealtime() base, not System.currentTimeMillis()
+        val timeDiff = targetTimeMillis - System.currentTimeMillis()
+        val chronometerBase = android.os.SystemClock.elapsedRealtime() + timeDiff
+
         // Custom Layout
         val remoteViews = RemoteViews(packageName, R.layout.live_timer_notification)
         remoteViews.setTextViewText(R.id.title, title)
-        remoteViews.setChronometer(R.id.chronometer, targetTimeMillis, "%s", true)
+        remoteViews.setChronometer(R.id.chronometer, chronometerBase, null, true)
 
         // Dismiss Intent
         val dismissIntent = Intent(this, NotificationDismissReceiver::class.java).apply {

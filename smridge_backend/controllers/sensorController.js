@@ -127,11 +127,41 @@ exports.receiveSensorData = async (req, res) => {
     }
 
     const allUsers = [];
-    if (device.userId) allUsers.push(device.userId);
-    if (device.sharedWith && Array.isArray(device.sharedWith)) {
-        allUsers.push(...device.sharedWith);
+    const seenUserIds = new Set();
+
+    // Add device owner
+    if (device.userId && device.userId._id) {
+      allUsers.push(device.userId);
+      seenUserIds.add(String(device.userId._id));
     }
-    
+
+    // Add shared users
+    if (device.sharedWith && Array.isArray(device.sharedWith)) {
+      for (const su of device.sharedWith) {
+        if (su && su._id && !seenUserIds.has(String(su._id))) {
+          allUsers.push(su);
+          seenUserIds.add(String(su._id));
+        }
+      }
+    }
+
+    // 🔥 MULTI-USER FIX: Also include any registered user who has completed device setup
+    // but is not already linked to THIS specific device document.
+    // This covers the case where the ESP32 sends data as LEGACY_ESP32_001 but the user
+    // completed setup with a different deviceId via QR scan.
+    try {
+      const activeUsers = await User.find({ deviceId: { $ne: null } }).lean();
+      for (const au of activeUsers) {
+        if (!seenUserIds.has(String(au._id))) {
+          allUsers.push(au);
+          seenUserIds.add(String(au._id));
+          console.log(`🔗 [Multi-User] Including user ${au.name || au._id} (has device setup but not linked to ${deviceId})`);
+        }
+      }
+    } catch (luErr) {
+      console.error("Multi-user lookup error (non-fatal):", luErr);
+    }
+
     if (allUsers.length === 0) {
       return res.status(404).json({ message: "Device is corrupted or unlinked." });
     }
@@ -238,14 +268,6 @@ exports.receiveSensorData = async (req, res) => {
               userId: currentUser._id,
               deviceId: deviceId
             }).catch(err => console.error("History log error:", err));
-
-            const fridgeScoreDetails = getSensorScore({
-              temperature: temp,
-              humidity: hum,
-              gasLevel,
-              weight,
-              doorStatus
-            });
 
             FridgeStatus.findOneAndUpdate(
               { userId: currentUser._id },

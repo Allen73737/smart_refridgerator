@@ -506,11 +506,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildLiveTimerCard(InventoryItem item, bool isLight, bool isDark) {
-    final now = DateTime.now().toUtc();
-    final isReminder = item.reminderDate != null && item.reminderDate!.toUtc().isAfter(now);
-    final targetTime = isReminder ? item.reminderDate!.toUtc() : item.expiryDate.toUtc();
+    final now = DateTime.now();
+    final isReminder = item.reminderDate != null && item.reminderDate!.toLocal().isAfter(now);
+    final targetTimeLocal = isReminder ? item.reminderDate!.toLocal() : item.expiryDate.toLocal();
     Color color = isReminder ? Colors.amberAccent : Colors.redAccent;
-    final diff = targetTime.difference(now);
+    final diff = targetTimeLocal.difference(now);
 
     // ⏳ Format as countdown: "in 2h 30m 15s" or "OVERDUE"
     String countdownStr;
@@ -535,9 +535,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       color = Colors.redAccent;
     }
 
-    // Wall-clock time for reference
-    final timeStr = "${targetTime.hour.toString().padLeft(2, '0')}:${targetTime.minute.toString().padLeft(2, '0')}";
-    final dateStr = "${targetTime.day}/${targetTime.month}/${targetTime.year}";
+    // Wall-clock time for reference (LOCAL time)
+    final timeStr = "${targetTimeLocal.hour.toString().padLeft(2, '0')}:${targetTimeLocal.minute.toString().padLeft(2, '0')}";
+    final dateStr = "${targetTimeLocal.day}/${targetTimeLocal.month}/${targetTimeLocal.year}";
 
     return Container(
       margin: const EdgeInsets.only(bottom: 15),

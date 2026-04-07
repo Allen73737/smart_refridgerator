@@ -18,7 +18,7 @@ const cors = require("cors");
 const http = require("http");
 const socketManager = require("./utils/socketManager");
 const sensorService = require("./utils/sensorService");
-const { getSensorScore } = require("./utils/freshnessUtils");
+const { calculateOverallFreshness } = require("./utils/freshnessUtils");
 
 const compression = require("compression");
 const app = express();
