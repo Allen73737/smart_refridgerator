@@ -104,7 +104,10 @@ class MainActivity : FlutterActivity() {
             .setCustomBigContentView(remoteViews)
             .setOngoing(true) // Prevent swipe clear
             .setContentIntent(pendingAppIntent)
+            .setFullScreenIntent(pendingAppIntent, true) // 🚨 Wake up screen for alarms
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 🚨 Show on lock screen
+            .setCategory(NotificationCompat.CATEGORY_ALARM) // 🚨 Treat as alarm
 
         manager.notify(id, builder.build())
     }
