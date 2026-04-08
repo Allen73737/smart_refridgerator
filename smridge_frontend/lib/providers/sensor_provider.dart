@@ -83,14 +83,20 @@ class SensorProvider extends ChangeNotifier {
       final rawTemp = data['temperature']?.toString() ?? "3.5";
       final rawHum = data['humidity']?.toString() ?? "60.0";
       final rawGas = data['gasLevel']?.toString() ?? "15";
-      final rawFresh = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "100.0";
+      // 🔥 FIX: Only update freshness if the payload actually has it.
+      // Using ?? "100.0" caused the display to flip back to 100% every time
+      // the backend sent a response (e.g. DB fallback) without a freshness field.
+      final rawFreshStr = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString();
       final rawDoor = (data['doorStatus'] ?? data['doorOpen'] ?? "closed").toString();
 
       temperature = double.tryParse(rawTemp) ?? 3.5;
       humidity = double.tryParse(rawHum) ?? 60.0;
       gasLevel = int.tryParse(rawGas) ?? 15;
-      freshnessScore = double.tryParse(rawFresh) ?? 100.0;
-      status = data['status']?.toString() ?? "OPTIMAL";
+      // Only overwrite freshnessScore when we have a real value from this payload
+      if (rawFreshStr != null) {
+        freshnessScore = double.tryParse(rawFreshStr) ?? freshnessScore;
+      }
+      status = data['status']?.toString() ?? status;
       doorStatus = (rawDoor == 'true' || rawDoor.toLowerCase() == 'open') ? "OPEN" : "CLOSED";
       isRealData = data['isReal'] ?? true;
       lastUpdated = DateTime.now();
@@ -107,16 +113,19 @@ class SensorProvider extends ChangeNotifier {
     final rawTemp = data['temperature']?.toString() ?? "3.5";
     final rawHum = data['humidity']?.toString() ?? "60.0";
     final rawGas = data['gasLevel']?.toString() ?? "15";
-    final rawFresh = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "100.0";
+    // 🔥 FIX: Preserve last known freshnessScore if payload has no freshness field
+    final rawFreshStr = (data['freshnessScore'] ?? data['calculatedFreshness'])?.toString();
     final rawDoor = (data['doorStatus'] ?? data['doorOpen'] ?? "closed").toString();
 
     temperature = double.tryParse(rawTemp) ?? 3.5;
     humidity = double.tryParse(rawHum) ?? 60.0;
     gasLevel = int.tryParse(rawGas) ?? 15;
-    freshnessScore = double.tryParse(rawFresh) ?? 100.0;
-    status = data['status']?.toString() ?? "OPTIMAL";
+    if (rawFreshStr != null) {
+      freshnessScore = double.tryParse(rawFreshStr) ?? freshnessScore;
+    }
+    status = data['status']?.toString() ?? status;
     doorStatus = (rawDoor == 'true' || rawDoor.toLowerCase() == 'open') ? "OPEN" : "CLOSED";
-    isRealData = data['isReal'] ?? true; 
+    isRealData = data['isReal'] ?? true;
     lastUpdated = DateTime.now();
 
     notifyListeners();
