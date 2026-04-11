@@ -45,6 +45,9 @@ cron.schedule("* * * * *", async () => {
   const now = new Date();
   const items = await Item.find();
 
+  // 🛡️ WINDOW-BASED INTERVALS (sorted descending)
+  // Each interval fires ONLY when the time remaining falls within its window,
+  // not retroactively when the item has already passed that point.
   const intervals = [
     { label: "72h", mins: 72 * 60 },
     { label: "48h", mins: 48 * 60 },
@@ -57,6 +60,7 @@ cron.schedule("* * * * *", async () => {
     { label: "1h", mins: 1 * 60 },
     { label: "30m", mins: 30 },
     { label: "10m", mins: 10 },
+    { label: "1m", mins: 1 },
     { label: "expired", mins: 0 }
   ];
 
@@ -67,47 +71,69 @@ cron.schedule("* * * * *", async () => {
     const diffMs = expiry - now;
     const diffMins = Math.floor(diffMs / (1000 * 60));
 
-    for (const interval of intervals) {
-      // If we are within the interval window and hasn't been notified for this label yet
-      if (diffMins <= interval.mins && (!item.notifiedIntervals || !item.notifiedIntervals.includes(interval.label))) {
-        
-        let title = `Expiry Warning: ${item.name}`;
-        let message = `Your ${item.name} is going to expire in ${interval.label}!`;
+    for (let i = 0; i < intervals.length; i++) {
+      const interval = intervals[i];
+      const alreadyNotified = item.notifiedIntervals && item.notifiedIntervals.includes(interval.label);
+      if (alreadyNotified) continue;
 
-        if (interval.label === "expired") {
-          title = `Item Expired: ${item.name}`;
-          message = `${item.name} has expired! Please discard it.`;
-        }
-
-        // Create Notification in DB
-        const notification = await NotificationModel.create({
-          userId: item.userId,
-          title,
-          message,
-          type: "expiry"
-        });
-
-        // 🔹 Emit Targeted Socket Event for real-time UI update
-        socketManager.emitToUser(item.userId, "notification_update", { action: "new", notification });
-        console.log(`🔔 Targeted expiry notification pushed to user: ${item.userId}`);
-
-        // Update Item to track this interval
-        await Item.findByIdAndUpdate(item._id, {
-          $addToSet: { notifiedIntervals: interval.label }
-        });
-
-        // Send Push Notification
-        const user = await User.findById(item.userId);
-        if (user && user.fcmToken) {
-          const stableId = getStableId(item.name);
-          await sendPushNotification(user.fcmToken, title, message, {
-             notificationId: (stableId + 1000000).toString(), // 🎯 Aligned with Tracker ID
-             type: "expiry"
-          });
-        }
-
-        break; 
+      // 🛡️ WINDOW-BASED MATCHING:
+      // For "expired": fire only when diffMins <= 0 (and within 10 min grace period)
+      // For others: fire only when diffMins has crossed below the interval threshold
+      //   BUT has NOT yet crossed below the next smaller interval threshold.
+      //   This ensures we only fire the CORRECT interval for the current time,
+      //   not all intervals retroactively.
+      
+      let shouldNotify = false;
+      
+      if (interval.label === "expired") {
+        // Fire when item has actually expired (within last 10 minutes to catch it)
+        shouldNotify = diffMins <= 0 && diffMins > -10;
+      } else {
+        // The next smaller interval's threshold (or 0 if this is the last before "expired")
+        const nextIntervalMins = (i + 1 < intervals.length) ? intervals[i + 1].mins : 0;
+        // Fire if remaining time is at or below this interval's threshold,
+        // but still above the next interval's threshold
+        shouldNotify = diffMins <= interval.mins && diffMins > nextIntervalMins;
       }
+
+      if (!shouldNotify) continue;
+
+      let title = `Expiry Warning: ${item.name}`;
+      let message = `Your ${item.name} is going to expire in ${interval.label}!`;
+
+      if (interval.label === "expired") {
+        title = `Item Expired: ${item.name}`;
+        message = `${item.name} has expired! Please discard it.`;
+      }
+
+      // Create Notification in DB
+      const notification = await NotificationModel.create({
+        userId: item.userId,
+        title,
+        message,
+        type: "expiry"
+      });
+
+      // 🔹 Emit Targeted Socket Event for real-time UI update
+      socketManager.emitToUser(item.userId, "notification_update", { action: "new", notification });
+      console.log(`🔔 [WINDOW] Expiry notification '${interval.label}' pushed for ${item.name} (diffMins=${diffMins})`);
+
+      // Update Item to track this interval
+      await Item.findByIdAndUpdate(item._id, {
+        $addToSet: { notifiedIntervals: interval.label }
+      });
+
+      // Send Push Notification
+      const user = await User.findById(item.userId);
+      if (user && user.fcmToken) {
+        const stableId = getStableId(item.name);
+        await sendPushNotification(user.fcmToken, title, message, {
+           notificationId: (stableId + 1000000).toString(), // 🎯 Aligned with Tracker ID
+           type: "expiry"
+        });
+      }
+
+      break; // Only one notification per item per cron cycle
     }
 
     // 🔔 CUSTOM REMINDER CHECK

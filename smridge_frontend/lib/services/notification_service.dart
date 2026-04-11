@@ -299,8 +299,9 @@ class NotificationService {
       color: const Color(0xFFFF004D),
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
+      // 🛡️ No sound on ongoing tracker — only the alarm at expiry should play
+      playSound: false,
+      enableVibration: false,
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'dismiss_timer',
@@ -392,9 +393,11 @@ class NotificationService {
       visibility: NotificationVisibility.public,
       groupKey: 'com.example.smridge.TIMERS',
       groupAlertBehavior: GroupAlertBehavior.all,
-      timeoutAfter: localExpiry.difference(now).inMilliseconds,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
+      // 🛡️ REMOVED timeoutAfter — it auto-dismissed the notification before expiry!
+      // The scheduled alarm at expiry time handles replacement.
+      // 🛡️ No sound on ongoing tracker — only the alarm at expiry should play
+      playSound: false,
+      enableVibration: false,
       actions: <AndroidNotificationAction>[
         AndroidNotificationAction(
           'dismiss_timer',
@@ -511,12 +514,12 @@ class NotificationService {
       icon: 'ic_notif',
       largeIcon: largeIcon,
       color: const Color(0xFF00E5FF),
-      enableVibration: true,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('smridge_alarm'),
+      // 🛡️ No sound/vibration on ongoing tracker — only the alarm at deadline should play
+      enableVibration: false,
+      playSound: false,
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
-      timeoutAfter: targetTime.difference(now).inMilliseconds,
+      // 🛡️ REMOVED timeoutAfter — it auto-dismissed the notification before the deadline!
       styleInformation: BigTextStyleInformation(
         "⏱️ <b>DEADLINE APPROACHING: <font color='#00E5FF'>$itemName</font></b> at $timeStr",
         contentTitle: "⚡ LIVE SMRIDGE TRACKER: $itemName",

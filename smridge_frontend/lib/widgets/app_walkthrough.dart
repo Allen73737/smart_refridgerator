@@ -37,11 +37,39 @@ class AppWalkthrough extends StatefulWidget {
 class _AppWalkthroughState extends State<AppWalkthrough> {
   int _currentStepIndex = 0;
   Rect? _targetRect;
+  int _retryCount = 0;
+  static const int _maxRetries = 20;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _calculateTargetRect());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollAndCalculate());
+  }
+
+  /// 🎯 Auto-scroll to the target widget, then calculate its position
+  Future<void> _scrollAndCalculate() async {
+    if (_currentStepIndex >= widget.steps.length) return;
+    _retryCount = 0;
+    
+    final key = widget.steps[_currentStepIndex].targetKey;
+    
+    // 🔹 Try to scroll the target into view first
+    if (key.currentContext != null) {
+      try {
+        await Scrollable.ensureVisible(
+          key.currentContext!,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+          alignment: 0.3, // Position target at 30% from top for comfortable viewing
+        );
+      } catch (_) {
+        // Not all widgets are inside a Scrollable — that's OK
+      }
+      // Wait for scroll animation to complete before measuring
+      await Future.delayed(const Duration(milliseconds: 450));
+    }
+    
+    _calculateTargetRect();
   }
 
   void _calculateTargetRect() {
@@ -51,19 +79,46 @@ class _AppWalkthroughState extends State<AppWalkthrough> {
     final RenderBox? renderBox = key.currentContext?.findRenderObject() as RenderBox?;
     
     if (renderBox != null && mounted) {
+      final offset = renderBox.localToGlobal(Offset.zero);
+      final rect = offset & renderBox.size;
+      
+      // Safety check: if the rect is zero-sized, retry
+      if (rect.width == 0 || rect.height == 0) {
+        _retryWithDelay();
+        return;
+      }
+      
+      // Safety check: if the rect is off-screen, try scrolling again
+      final screenHeight = MediaQuery.of(context).size.height;
+      if (rect.top > screenHeight || rect.bottom < 0) {
+        _retryWithDelay(scrollFirst: true);
+        return;
+      }
+      
       setState(() {
-        final offset = renderBox.localToGlobal(Offset.zero);
-        _targetRect = offset & renderBox.size;
-        
-        // Safety check: if the rect is zero or off-screen, try to wait a bit
-        if (_targetRect!.width == 0 || _targetRect!.height == 0) {
-           Future.delayed(const Duration(milliseconds: 100), () => _calculateTargetRect());
-        }
+        _targetRect = rect;
       });
     } else {
-       // Target not found yet (maybe rendering takes time)
-       Future.delayed(const Duration(milliseconds: 100), () => _calculateTargetRect());
+      _retryWithDelay();
     }
+  }
+
+  void _retryWithDelay({bool scrollFirst = false}) {
+    if (_retryCount >= _maxRetries) {
+      // Give up on this step — skip to next
+      debugPrint("⚠️ Walkthrough: Could not find target for step $_currentStepIndex, skipping.");
+      _nextStep();
+      return;
+    }
+    _retryCount++;
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      if (scrollFirst) {
+        _scrollAndCalculate();
+      } else {
+        _calculateTargetRect();
+      }
+    });
   }
 
   void _nextStep() {
@@ -73,7 +128,8 @@ class _AppWalkthroughState extends State<AppWalkthrough> {
         _currentStepIndex++;
         _targetRect = null; 
       });
-      Future.delayed(100.ms, () => _calculateTargetRect());
+      // 🔹 Use scrollAndCalculate instead of just calculateTargetRect
+      Future.delayed(100.ms, () => _scrollAndCalculate());
     } else {
       widget.onFinish();
     }

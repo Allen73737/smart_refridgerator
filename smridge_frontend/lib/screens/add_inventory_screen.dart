@@ -94,6 +94,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   final GlobalKey _wtCategoryKey = GlobalKey();
   final GlobalKey _wtWeightKey = GlobalKey();
   final GlobalKey _wtExpiryKey = GlobalKey();
+  final GlobalKey _wtQuantityKey = GlobalKey();
+  final GlobalKey _wtReminderKey = GlobalKey();
+  final GlobalKey _wtNotesKey = GlobalKey();
+  final GlobalKey _wtImageKey = GlobalKey();
   final GlobalKey _wtSaveKey = GlobalKey();
   
   bool _showWalkthrough = false;
@@ -169,22 +173,42 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         WalkthroughStep(
           targetKey: _wtNameKey,
           title: "Intelligent Naming",
-          description: "Start typing an item name. Our AI will predict the category and estimate a safe expiry date based on thousands of food types.",
+          description: "Start typing an item name. Our AI will predict the category, estimate a safe expiry date, and even suggest images — all from the name alone.",
         ),
         WalkthroughStep(
           targetKey: _wtCategoryKey,
           title: "Precise Categorization",
-          description: "Categories help Smridge apply specific freshness algorithms. For example, dairy items have stricter temp-stability requirements.",
+          description: "Categories help Smridge apply specific freshness algorithms. AI auto-fills this, or pick from Dairy, Meat, Beverages, and more.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtQuantityKey,
+          title: "Quantity Tracking",
+          description: "Set the number of units. For liquids, a capacity field in litres will appear automatically so you can track volume too.",
         ),
         WalkthroughStep(
           targetKey: _wtExpiryKey,
           title: "Dynamic Expiry",
-          description: "Adjust the expiry date manually or trust our AI-suggested estimates. You'll get a notification 48 hours before this date.",
+          description: "Set the expiry date and time. AI estimates this from the item name, but you can override it manually. Notifications fire at 72h, 48h, 24h, and more.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtReminderKey,
+          title: "Custom Reminder",
+          description: "Set a personal reminder for any date and time. Smridge will show a live countdown timer in the notification shade and alert you at the deadline.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtNotesKey,
+          title: "Personal Notes",
+          description: "Add storage tips, recipes, or any notes. These sync across all your devices and are visible in the item detail overlay.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtImageKey,
+          title: "Visual Identification",
+          description: "Take a photo or pick from gallery. Our AI will auto-detect the item, fill in details, and suggest high-quality stock images for your inventory.",
         ),
         WalkthroughStep(
           targetKey: _wtSaveKey,
           title: "Cloud Sync",
-          description: "Save your item to sync it with the 3D fridge view and all connected mobile devices.",
+          description: "Save your item to sync it with the 3D fridge view, notification system, and all connected mobile devices instantly.",
         ),
       ];
       _showWalkthrough = true;
@@ -634,6 +658,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                         const SizedBox(height: 15),
 
                         _buildGlassInput(
+                          key: _wtQuantityKey, // 🎯
                           label: "Quantity", 
                           controller: quantityController, 
                           type: TextInputType.number,
@@ -677,6 +702,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
                         // 🔔 Reminder Date Selection
                         Container(
+                          key: _wtReminderKey, // 🎯
                           decoration: BoxDecoration(
                             color: isLight ? Colors.grey.shade200 : Colors.blueAccent.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(16),
@@ -700,6 +726,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                         const SizedBox(height: 15),
 
                         _buildGlassInput(
+                          key: _wtNotesKey, // 🎯
                           label: "Notes (Optional)", 
                           controller: notesController, 
                           icon: Icons.note_alt_outlined,
@@ -709,6 +736,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                         const SizedBox(height: 15),
 
                         GestureDetector(
+                          key: _wtImageKey, // 🎯
                           onTap: _showImagePickerBottomDialog,
                           child: Container(
                             height: 200,
