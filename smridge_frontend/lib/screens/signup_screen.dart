@@ -210,7 +210,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             ),
                           ),
                           validator: (value) {
-                            if (value == null || value.length < 6) return "Password must be 6+ chars";
+                            if (value == null || value.length < 8) return "Min 8 characters";
+                            if (!RegExp(r'[A-Z]').hasMatch(value)) return "Need an uppercase letter";
+                            if (!RegExp(r'[0-9]').hasMatch(value)) return "Need a number";
+                            if (!RegExp(r'[!@#$%^&*()_+\-=\[\]{};:"|,.<>/?]').hasMatch(value)) return "Need a special character";
                             return null;
                           },
                         ).animate().slideX(begin: 0.2).fade(delay: 200.ms),

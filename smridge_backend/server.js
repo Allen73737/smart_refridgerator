@@ -21,12 +21,38 @@ const sensorService = require("./utils/sensorService");
 const { calculateOverallFreshness } = require("./utils/freshnessUtils");
 
 const compression = require("compression");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
+
 const app = express();
 
 // ─── MIDDLEWARE STACK ────────────────────────────────────────────────────────
 
+// 🛡️ Helmet: Sets 11+ security HTTP headers (XSS filter, content-type sniffing, etc.)
+app.use(helmet());
+
 // Compress all HTTP responses (gzip) to reduce payload size and improve speed
 app.use(compression());
+
+// 🛡️ Global API Rate Limit: 150 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { msg: "Too many requests. Please try again later." },
+});
+app.use(globalLimiter);
+
+// 🛡️ Stricter rate limit for auth endpoints (login, signup, password reset)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { msg: "Too many authentication attempts. Try again in 15 minutes." },
+});
 
 /**
  * CORS Policy: Allows the Flutter mobile app (from any IP) to communicate
@@ -43,7 +69,6 @@ app.use(cors({
 /**
  * Request Logger Middleware
  * Logs every incoming request with timestamp, HTTP method, and URL.
- * Useful for debugging and monitoring traffic in production.
  */
 app.use((req, res, next) => {
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
@@ -52,8 +77,6 @@ app.use((req, res, next) => {
 
 /**
  * Chrome Private Network Access Header
- * Required for local ESP32 devices accessed from a web-based dashboard.
- * This header explicitly permits connections from private networks.
  */
 app.use((req, res, next) => {
   if (req.headers['access-control-request-private-network']) {
@@ -62,8 +85,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Allow the server to read JSON payloads from request bodies (e.g., item data, sensor pings)
-app.use(express.json());
+// Allow the server to read JSON payloads from request bodies
+app.use(express.json({ limit: '10mb' }));
+
+// 🛡️ Mongo Sanitize: Strips $ and . from req.body/query/params to prevent NoSQL injection
+app.use(mongoSanitize());
 
 // ─── SERVER & WEBSOCKET SETUP ─────────────────────────────────────────────────
 
@@ -92,7 +118,7 @@ mongoose.connect(process.env.MONGO_URI)
 // ─── API ROUTES ───────────────────────────────────────────────────────────────
 
 // Each route file is loaded lazily here. The string prefix defines the URL path.
-app.use("/api/auth", require("./routes/authRoutes"));          // User login & registration
+app.use("/api/auth", authLimiter, require("./routes/authRoutes")); // 🛡️ Rate-limited auth
 app.use("/api/items", require("./routes/itemRoutes"));          // Fridge inventory CRUD
 app.use("/api/user", require("./routes/userRoutes"));           // Profile & account management
 app.use("/api/analytics", require("./routes/analyticsRoutes")); // Historical data for charts

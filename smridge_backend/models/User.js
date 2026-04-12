@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema({
   backupCodesUsed:         { type: Number, default: 0 },    // How many codes have been consumed
   failedRecoveryAttempts:  { type: Number, default: 0 },    // Rate-limit brute force
   failedRecoveryLockUntil: { type: Date, default: null },   // Lockout timestamp
+  // 🛡️ Session Security
+  tokenVersion:            { type: Number, default: 0 },    // Incremented on password change to invalidate old JWTs
+  failedLoginAttempts:     { type: Number, default: 0 },    // Login rate limiting
+  loginLockUntil:          { type: Date, default: null },   // Login lockout timestamp
 }, { timestamps: true });
 
 // Auto-hash password/PIN before saving (SINGLE source of truth)

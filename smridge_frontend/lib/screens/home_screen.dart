@@ -104,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _editItemIndex;
   int unreadNotifications = 0;
   Timer? _expiryCheckTimer; // 🔹 Added for periodic check
+  Timer? _inactivityTimer; // 🛡️ Auto-logout after 30 min inactivity
   DateTime? _lastSyncTime;
   final Duration _syncThrottle = const Duration(seconds: 10);
 
@@ -160,6 +161,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _checkInitialUnreadAlert();
 
     WidgetsBinding.instance.addObserver(this);
+    _resetInactivityTimer(); // 🛡️ Start inactivity watchdog
 
     // 🎯 Walkthrough and Network Check
     Future.delayed(1.seconds, () {
@@ -383,7 +385,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _expiryCheckTimer?.cancel(); 
+    _expiryCheckTimer?.cancel();
+    _inactivityTimer?.cancel(); // 🛡️
     _notifSubscription?.cancel(); 
     _emergencySubscription?.cancel();
     AudioService.stopUrgentAlert();
@@ -400,7 +403,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       print("🚀 App Resumed: Syncing timers and notifications...");
       _checkExpiryTimers();
       _fetchNotificationsCount();
+      _resetInactivityTimer(); // 🛡️ Reset on resume
+    } else if (state == AppLifecycleState.paused) {
+      // 🛡️ Start the real logout countdown when app goes to background
+      _inactivityTimer?.cancel();
+      _inactivityTimer = Timer(const Duration(minutes: 30), () async {
+        print("🛡️ Auto-logout: 30 min inactivity exceeded");
+        await SecureStorageService.clearAll();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+      });
     }
+  }
+
+  /// 🛡️ Resets the inactivity timer (called on resume, tap, etc.)
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    // No active timer while app is in foreground — only fires when backgrounded
   }
 
   // 🚀 Notification Deep Linking Logic

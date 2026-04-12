@@ -56,6 +56,20 @@ exports.signup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
+    // 🛡️ Password Strength Enforcement
+    if (!password || password.length < 8) {
+      return res.status(400).json({ msg: "Password must be at least 8 characters" });
+    }
+    if (!/[A-Z]/.test(password)) {
+      return res.status(400).json({ msg: "Password must contain at least one uppercase letter" });
+    }
+    if (!/[0-9]/.test(password)) {
+      return res.status(400).json({ msg: "Password must contain at least one number" });
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      return res.status(400).json({ msg: "Password must contain at least one special character" });
+    }
+
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ msg: "User already exists" });
 
@@ -69,11 +83,11 @@ exports.signup = async (req, res) => {
 
     await logActivity(user._id, 'REGISTER', 'user', `New user registered: ${user.email}`);
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    const token = jwt.sign({ id: user._id, v: user.tokenVersion || 0 }, process.env.JWT_SECRET, { expiresIn: "7d" });
     res.status(201).json({
       token,
       user: { _id: user._id, name: user.name, email: user.email, role: user.role },
-      backupCodes: plain, // ⚠️ Returned ONCE — never stored in plain text
+      backupCodes: plain,
     });
   } catch (error) {
     console.error("Signup Error:", error.message);
@@ -85,10 +99,8 @@ exports.signup = async (req, res) => {
  * @function login
  * @route POST /api/auth/login
  * @description Authenticates an existing email/password user.
- * - Validates the email exists in DB and the authProvider is 'email'.
- * - Uses `matchPassword` (bcrypt compare) to verify the password hash.
- * - Checks if the user account has been blocked by an admin.
- * - Updates `lastActive` timestamp and issues a fresh JWT.
+ * - Rate-limited: 5 failed attempts triggers 15-minute lockout.
+ * - Issues a 7-day JWT with tokenVersion for session invalidation.
  */
 exports.login = async (req, res) => {
   try {
@@ -104,6 +116,13 @@ exports.login = async (req, res) => {
     
     console.log(`--- [DEBUG] User Found: ${user.email}, AuthProvider: ${user.authProvider}, Blocked: ${user.isBlocked} ---`);
 
+    // 🛡️ Login lockout check
+    if (user.loginLockUntil && new Date() < new Date(user.loginLockUntil)) {
+      const minutesLeft = Math.ceil((new Date(user.loginLockUntil) - new Date()) / 60000);
+      console.log(`--- [DEBUG] Login Locked for ${email}: ${minutesLeft}m remaining ---`);
+      return res.status(429).json({ msg: `Account temporarily locked. Try again in ${minutesLeft} minutes.` });
+    }
+
     if (user.authProvider !== 'email') {
       console.log(`--- [DEBUG] Login Failed: authProvider is ${user.authProvider}, expected 'email' ---`);
       return res.status(400).json({ msg: "Invalid credentials" });
@@ -113,7 +132,15 @@ exports.login = async (req, res) => {
     console.log(`--- [DEBUG] Password Match Result: ${isMatch} ---`);
     
     if (!isMatch) {
-      console.log(`--- [DEBUG] Login Failed: Password mismatch for ${email} ---`);
+      // 🛡️ Increment failed login counter
+      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+      console.log(`--- [DEBUG] Login Failed: Password mismatch for ${email} (attempt ${user.failedLoginAttempts}) ---`);
+      if (user.failedLoginAttempts >= 5) {
+        user.loginLockUntil = new Date(Date.now() + 15 * 60 * 1000); // Lock 15 minutes
+        user.failedLoginAttempts = 0;
+        console.log(`--- [DEBUG] Login LOCKED for ${email} for 15 minutes ---`);
+      }
+      await user.save({ validateBeforeSave: false });
       return res.status(400).json({ msg: "Invalid credentials" });
     }
 
@@ -122,12 +149,15 @@ exports.login = async (req, res) => {
       return res.status(403).json({ msg: "Account is blocked. Contact admin." });
     }
 
+    // ✅ Login successful — reset counters
     user.lastActive = Date.now();
+    user.failedLoginAttempts = 0;
+    user.loginLockUntil = null;
     await user.save({ validateBeforeSave: false });
 
     await logActivity(user._id, 'LOGIN', user.role, `User logged in via email: ${user.email}`);
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
+    const token = jwt.sign({ id: user._id, v: user.tokenVersion || 0 }, process.env.JWT_SECRET, { expiresIn: "7d" });
     console.log(`--- [DEBUG] Login Successful for ${email} ---`);
     res.json({ token, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (error) {
@@ -286,6 +316,8 @@ exports.resetPassword = async (req, res) => {
 
     // Reset password (pre-save hook will hash it)
     user.password = newPassword;
+    // 🛡️ Increment tokenVersion to invalidate ALL existing sessions
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
 
     const remaining = 10 - user.backupCodesUsed;

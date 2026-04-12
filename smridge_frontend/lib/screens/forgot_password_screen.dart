@@ -184,7 +184,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 onPressed: () => setState(() => _obscureNew = !_obscureNew),
               ),
             ),
-            validator: (v) => (v == null || v.length < 6) ? "Min 6 characters" : null,
+            validator: (v) {
+              if (v == null || v.length < 8) return "Min 8 characters";
+              if (!RegExp(r'[A-Z]').hasMatch(v)) return "Need uppercase letter";
+              if (!RegExp(r'[0-9]').hasMatch(v)) return "Need a number";
+              if (!RegExp(r'[!@#$%^&*()_+\-=\[\]{};:"|,.<>/?]').hasMatch(v)) return "Need special char";
+              return null;
+            },
           ).animate().slideX(begin: 0.15).fadeIn(delay: 400.ms),
           const SizedBox(height: 20),
           TextFormField(
