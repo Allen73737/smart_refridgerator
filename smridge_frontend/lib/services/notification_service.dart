@@ -320,7 +320,7 @@ class NotificationService {
       }
     }
 
-    final androidDetails = const AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'smridge_urgent_v15',
       'Smridge Emergency Protocol',
       importance: Importance.max,
@@ -329,8 +329,9 @@ class NotificationService {
       showWhen: true,
       usesChronometer: true,
       chronometerCountDown: true,
+      when: localExpiry.millisecondsSinceEpoch,
       icon: 'ic_notif',
-      color: Color(0xFFFF004D),
+      color: const Color(0xFFFF004D),
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
       playSound: false,
@@ -392,7 +393,7 @@ class NotificationService {
 
   Future<void> showCountdownNotification(String itemName, DateTime expiry, {int? itemId}) async {
     final now = DateTime.now();
-    final localExpiry = expiry.toLocal();
+    final localExpiry = expiry.isUtc ? expiry.toLocal() : expiry;
     final diff = localExpiry.difference(now);
     
     if (diff.isNegative || diff.inHours > 72) return;
@@ -410,14 +411,18 @@ class NotificationService {
           'targetTime': localExpiry.millisecondsSinceEpoch,
           'payload': 'inventory:$itemName',
         });
-        return; // Prevent Flutter Local Notifications from overriding the custom shade layout
+        debugPrint("✅ Native countdown launched for $itemName (target=${localExpiry.toIso8601String()})");
+        // 🚨 Schedule the end-of-timer alarm to replace the countdown
+        await _scheduleTimerEndAlert(trackerId, itemName, localExpiry, shadeId: trackerId);
+        return;
       } catch (e) {
-        debugPrint("❌ MethodChannel Error: $e");
+        debugPrint("❌ MethodChannel Error (falling back to Flutter): $e");
       }
     }
 
-    // 🛡️ Fallback standard Flutter notification
-    final androidDetails = const AndroidNotificationDetails(
+    // 🛡️ Fallback: Flutter Local Notification with Chronometer
+    // ⚠️ CRITICAL: `when` MUST be set to the TARGET timestamp for chronometerCountDown to work!
+    final androidDetails = AndroidNotificationDetails(
       'smridge_urgent_v15',
       'Smridge Emergency Protocol',
       importance: Importance.max,
@@ -427,8 +432,9 @@ class NotificationService {
       showWhen: true,
       usesChronometer: true,
       chronometerCountDown: true,
+      when: localExpiry.millisecondsSinceEpoch,
       icon: 'ic_notif',
-      color: Color(0xFFFF004D), 
+      color: const Color(0xFFFF004D), 
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
       groupKey: 'com.example.smridge.TIMERS',
@@ -447,9 +453,13 @@ class NotificationService {
         details,
         payload: 'inventory:$itemName',
       );
+      debugPrint("✅ Flutter countdown notification shown for $itemName");
     } catch (e) {
       debugPrint("❌ Flutter Notif Error: $e");
     }
+    
+    // 🚨 Schedule the alarm at the end
+    await _scheduleTimerEndAlert(trackerId, itemName, localExpiry, shadeId: trackerId);
   }
 
   Future<void> scheduleExpiryNotification(int id, String itemName, DateTime expiryDate) async {

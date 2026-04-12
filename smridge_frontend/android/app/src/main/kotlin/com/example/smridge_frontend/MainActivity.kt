@@ -34,10 +34,14 @@ class MainActivity : FlutterActivity() {
             if (call.method == "showLiveTimer") {
                 val id = call.argument<Int>("id") ?: 0
                 val title = call.argument<String>("title") ?: "Timer"
-                val targetTime = call.argument<Long>("targetTime") ?: 0L
+                // Dart int can arrive as either Int or Long depending on magnitude.
+                // Millisecond timestamps exceed Int.MAX_VALUE, so we must handle both.
+                val targetTime = (call.argument<Number>("targetTime"))?.toLong() ?: 0L
                 val payload = call.argument<String>("payload") ?: ""
 
-                showCustomTimerNotification(id, title, targetTime, payload)
+                if (targetTime > System.currentTimeMillis()) {
+                    showCustomTimerNotification(id, title, targetTime, payload)
+                }
                 result.success(null)
             } else if (call.method == "cancelLiveTimer") {
                 val id = call.argument<Int>("id") ?: 0
