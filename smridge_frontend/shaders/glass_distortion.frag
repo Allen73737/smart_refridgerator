@@ -1,3 +1,4 @@
+#version 460 core
 #include <flutter/runtime_effect.glsl>
 
 uniform float u_time;

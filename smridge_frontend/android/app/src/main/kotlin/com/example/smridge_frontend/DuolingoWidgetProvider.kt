@@ -63,6 +63,9 @@ class DuolingoWidgetProvider : HomeWidgetProvider() {
                         val durationRemaining = targetTimestamp - now
                         val chronometerBase = SystemClock.elapsedRealtime() + durationRemaining
                         setChronometer(R.id.timer_countdown, chronometerBase, null, true)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                            setBoolean(R.id.timer_countdown, "setCountDown", true)
+                        }
 
                         scheduleBlinkAlarm(context, targetTimestamp)
                     } else {

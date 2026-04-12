@@ -70,7 +70,10 @@ class MainActivity : FlutterActivity() {
         // Custom Layout
         val remoteViews = RemoteViews(packageName, R.layout.live_timer_notification)
         remoteViews.setTextViewText(R.id.title, title)
-        remoteViews.setChronometer(R.id.chronometer, chronometerBase, null, true)
+        remoteViews.setChronometer(R.id.chronometer, chronometerBase, "%s", true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            remoteViews.setBoolean(R.id.chronometer, "setCountDown", true)
+        }
 
         // Dismiss Intent
         val dismissIntent = Intent(this, NotificationDismissReceiver::class.java).apply {

@@ -28,7 +28,7 @@ class SmridgeChronoWidgetProvider : HomeWidgetProvider() {
             val appWidgetIds = appWidgetManager.getAppWidgetIds(thisAppWidget)
             
             // Trigger a formal update
-            val widgetData = context.getSharedPreferences("HomeWidgetPrefs", Context.MODE_PRIVATE)
+            val widgetData = context.getSharedPreferences("HomeWidgetPreferences", Context.MODE_PRIVATE)
             onUpdate(context, appWidgetManager, appWidgetIds, widgetData)
         }
     }
@@ -71,9 +71,12 @@ class SmridgeChronoWidgetProvider : HomeWidgetProvider() {
                         val durationRemaining = targetTs - now
                         if (durationRemaining > 0) {
                              val base = SystemClock.elapsedRealtime() + durationRemaining
-                             views.setChronometer(valIds[i], base, null, true)
+                             views.setChronometer(valIds[i], base, "%s", true)
+                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                 views.setBoolean(valIds[i], "setCountDown", true)
+                             }
                         } else {
-                             views.setChronometer(valIds[i], SystemClock.elapsedRealtime(), null, false)
+                             views.setChronometer(valIds[i], SystemClock.elapsedRealtime(), "%s", false)
                              views.setTextViewText(valIds[i], "00:00")
                         }
                     }

@@ -217,7 +217,13 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _currentStep == SetupStep.welcome,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        _prevStep();
+      },
+      child: Scaffold(
       body: Stack(
         children: [
           // Background
@@ -263,7 +269,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           ).animate().fadeIn(delay: 1.seconds),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildCurrentStep() {

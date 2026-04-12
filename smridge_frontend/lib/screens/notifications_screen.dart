@@ -12,6 +12,7 @@ import '../providers/theme_provider.dart';
 import '../services/secure_storage_service.dart';
 import '../services/notification_service.dart';
 import '../models/inventory_item.dart';
+import '../widgets/app_walkthrough.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -35,16 +36,45 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final Set<String> _animatingOutIds = {};
   Timer? _countdownTimer; // For live countdown refresh
 
+  final GlobalKey _wtMarkReadKey = GlobalKey();
+  final GlobalKey _wtHistoryKey = GlobalKey();
+  final GlobalKey _wtClearAllKey = GlobalKey();
+
+  bool _showWalkthrough = false;
+  List<WalkthroughStep> _currentSteps = [];
+
   @override
   void initState() {
     super.initState();
     _fetchNotifications();
+    _checkFirstVisit();
     // 🔔 Refresh countdown every second
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && activeReminders.isNotEmpty) setState(() {});
     });
     // 🔔 Real-time: refresh when backend pushes a new/updated notification
     SocketService.on('notification_update', _onSocketNotification);
+  }
+
+  Future<void> _checkFirstVisit() async {
+    final visited = await SecureStorageService.getString('visited_notifications');
+    if (visited == null) {
+      _triggerWalkthrough();
+    }
+  }
+
+  void _triggerWalkthrough() {
+    setState(() {
+      _currentSteps = [
+        WalkthroughStep(targetKey: _wtMarkReadKey, title: "Quick Dismiss", description: "Use this to instantly mark all unread notifications as read while keeping them in your feed."),
+        WalkthroughStep(targetKey: _wtHistoryKey, title: "Notification Archive", description: "Review notifications that have been read, grouped by priority and date. Great for checking past sensor alerts."),
+      ];
+      if (notifications.isNotEmpty || activeReminders.isNotEmpty) {
+          _currentSteps.add(WalkthroughStep(targetKey: _wtClearAllKey, title: "Nuke Feed", description: "Permanently delete all visible notifications and wipe them from the backend database."));
+      }
+      _showWalkthrough = true;
+    });
+    SecureStorageService.saveString('visited_notifications', 'true');
   }
 
   void _onSocketNotification(dynamic data) {
@@ -169,10 +199,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final now = DateTime.now();
       final diff = now.difference(dt);
       
-      if (diff.inMinutes < 1) return "Just now";
-      if (diff.inMinutes < 60) return "${diff.inMinutes}m ago";
-      if (diff.inHours < 24) return "${diff.inHours}h ago";
-      return "${dt.day}/${dt.month}/${dt.year % 100}";
+      final timeStr = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+      if (diff.inMinutes < 1) return "Just now ($timeStr)";
+      if (diff.inMinutes < 60) return "${diff.inMinutes}m ago ($timeStr)";
+      if (diff.inHours < 24) return "${diff.inHours}h ago ($timeStr)";
+      return "${dt.day}/${dt.month}/${dt.year % 100} at $timeStr";
     } catch (e) {
       return "";
     }
@@ -206,6 +237,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             .animate().fadeIn(),
         actions: [
           IconButton(
+            key: _wtMarkReadKey,
             icon: Icon(Icons.done_all, color: textColor),
             onPressed: () async {
               final token = await SecureStorageService.getToken();
@@ -217,6 +249,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             tooltip: "Mark All Read",
           ),
           IconButton(
+            key: _wtHistoryKey,
             icon: Icon(Icons.history, color: textColor),
             onPressed: () {
               Navigator.push(
@@ -228,6 +261,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           if (notifications.isNotEmpty || activeReminders.isNotEmpty)
             TextButton(
+              key: _wtClearAllKey,
               onPressed: () async {
                 final token = await SecureStorageService.getToken();
                 if (token != null) {
@@ -257,250 +291,270 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
         ],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            children: [
-              Container(
-                width: constraints.maxWidth,
-                height: constraints.maxHeight,
-                decoration: BoxDecoration(
-                  color: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : null),
-                  gradient: (isLight || isDark) ? null : const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF0F2027), Color(0xFF203A43)],
+      body: Stack(
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Stack(
+                children: [
+                  Container(
+                    width: constraints.maxWidth,
+                    height: constraints.maxHeight,
+                    decoration: BoxDecoration(
+                      color: isLight ? const Color(0xFFF3F6F8) : (isDark ? Colors.black : null),
+                      gradient: (isLight || isDark) ? null : const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFF0F2027), Color(0xFF203A43)],
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const Positioned.fill(child: WaveBackground()),
-              
-              SafeArea(
-                child: SizedBox(
-                  width: constraints.maxWidth,
-                  height: constraints.maxHeight,
-                  child: isLoading 
-                  ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent)) 
-                  : _errorMessage != null ?
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.cloud_off_rounded, color: Colors.tealAccent, size: 64),
-                          const SizedBox(height: 20),
-                          Text(_errorMessage!, textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white70, fontSize: 15)),
-                          const SizedBox(height: 24),
-                          ElevatedButton.icon(
-                            onPressed: _fetchNotifications,
-                            icon: const Icon(Icons.refresh),
-                            label: const Text("Retry"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.tealAccent.withOpacity(0.2),
-                              foregroundColor: Colors.tealAccent,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
+                  const Positioned.fill(child: WaveBackground()),
+                  
+                  SafeArea(
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      child: isLoading 
+                      ? const Center(child: CircularProgressIndicator(color: Colors.tealAccent)) 
+                      : _errorMessage != null ?
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.cloud_off_rounded, color: Colors.tealAccent, size: 64),
+                              const SizedBox(height: 20),
+                              Text(_errorMessage!, textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                onPressed: _fetchNotifications,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text("Retry"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.tealAccent.withOpacity(0.2),
+                                  foregroundColor: Colors.tealAccent,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  )
-                  : combinedFeed.isEmpty ? 
-                  RefreshIndicator(
-                    onRefresh: _fetchNotifications,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: [
-                        SizedBox(height: constraints.maxHeight * 0.4),
-                        Center(child: Text("No new notifications", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16))),
-                      ],
-                    ),
-                  )
-                  : RefreshIndicator(
-                      onRefresh: _fetchNotifications,
-                      color: Colors.tealAccent,
-                      backgroundColor: const Color(0xFF1E2A33),
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(top: 80, bottom: 20, left: 16, right: 16),
-                        itemCount: combinedFeed.length,
-                        itemBuilder: (context, index) {
-                          final item = combinedFeed[index];
+                        ),
+                      )
+                      : combinedFeed.isEmpty ? 
+                      RefreshIndicator(
+                        onRefresh: _fetchNotifications,
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: constraints.maxHeight * 0.4),
+                            Center(child: Text("No new notifications", style: TextStyle(color: isLight ? Colors.black54 : Colors.white70, fontSize: 16))),
+                          ],
+                        ),
+                      )
+                      : RefreshIndicator(
+                          onRefresh: _fetchNotifications,
+                          color: Colors.tealAccent,
+                          backgroundColor: const Color(0xFF1E2A33),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(top: 80, bottom: 20, left: 16, right: 16),
+                            itemCount: combinedFeed.length,
+                            itemBuilder: (context, index) {
+                              final item = combinedFeed[index];
 
-                          if (item == "HEADER_TIMERS") {
-                            return const Padding(
-                              padding: EdgeInsets.only(bottom: 12, left: 8, top: 8),
-                              child: Text("⚡ LIVE TIMERS", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
-                            );
-                          } else if (item == "HEADER_ALERTS") {
-                            return const Padding(
-                              padding: EdgeInsets.only(bottom: 12, left: 8, top: 16),
-                              child: Text("🔔 ALERTS & HISTORY", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
-                            );
-                          } else if (item is InventoryItem) {
-                            return _buildLiveTimerCard(item, isLight, isDark);
-                          }
+                              if (item == "HEADER_TIMERS") {
+                                return const Padding(
+                                  padding: EdgeInsets.only(bottom: 12, left: 8, top: 8),
+                                  child: Text("⚡ LIVE TIMERS", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                                );
+                              } else if (item == "HEADER_ALERTS") {
+                                return const Padding(
+                                  padding: EdgeInsets.only(bottom: 12, left: 8, top: 16),
+                                  child: Text("🔔 ALERTS & HISTORY", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                                );
+                              } else if (item is InventoryItem) {
+                                return _buildLiveTimerCard(item, isLight, isDark);
+                              }
 
-                          // Standard Backend Notification
-                          final notif = item as Map<String, dynamic>?;
-                          if (notif == null) return const SizedBox.shrink();
+                              // Standard Backend Notification
+                              final notif = item as Map<String, dynamic>?;
+                              if (notif == null) return const SizedBox.shrink();
 
-                          final type = (notif['type'] ?? 'info').toString().toLowerCase();
-                          final icon = _getIconForType(type);
-                          final color = _getColorForType(type);
-                          final isRead = notif['isRead'] == true;
+                              final type = (notif['type'] ?? 'info').toString().toLowerCase();
+                              final icon = _getIconForType(type);
+                              final color = _getColorForType(type);
+                              final isRead = notif['isRead'] == true;
 
-                          Widget baseWidget = Padding(
-                            padding: const EdgeInsets.only(bottom: 15),
-                            child: Dismissible(
-                              key: Key(notif['_id']),
-                              direction: DismissDirection.endToStart,
-                              onDismissed: (direction) async {
-                                final dismissedId = notif['_id'];
-                                setState(() {
-                                  notifications.removeAt(index);
-                                });
+                              Widget baseWidget = Padding(
+                                padding: const EdgeInsets.only(bottom: 15),
+                                child: Dismissible(
+                                  key: Key(notif['_id']),
+                                  direction: DismissDirection.endToStart,
+                                  onDismissed: (direction) async {
+                                    final dismissedId = notif['_id'];
+                                    setState(() {
+                                      notifications.removeAt(index);
+                                    });
 
-                                final token = await SecureStorageService.getToken();
-                                if (token != null) {
-                                  await ApiService.markNotificationRead(dismissedId, token);
-                                }
-                              },
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
-                                decoration: BoxDecoration(
-                                  color: Colors.redAccent.withOpacity(0.5),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Icon(Icons.delete_outline, color: Colors.white),
-                              ),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: isLight 
-                                          ? (isRead ? Colors.grey.shade200 : Colors.white) 
-                                          : (isRead ? Colors.white.withOpacity(0.05) : const Color(0xFF1E2A33).withOpacity(0.95)),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isLight ? Colors.white : Colors.white.withOpacity(0.12),
-                                    width: 1.5,
+                                    final token = await SecureStorageService.getToken();
+                                    if (token != null) {
+                                      await ApiService.markNotificationRead(dismissedId, token);
+                                    }
+                                  },
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent.withOpacity(0.5),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Icon(Icons.delete_outline, color: Colors.white),
                                   ),
-                                  boxShadow: isLight || isRead ? [] : [
-                                    BoxShadow(
-                                      color: color.withOpacity(0.2),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
-                                    )
-                                  ]
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    ListTile(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                      leading: Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: color.withOpacity(isRead ? 0.05 : 0.15),
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(color: color.withOpacity(isRead ? 0.1 : 0.3), width: 2),
-                                        ),
-                                        child: Stack(
-                                          alignment: Alignment.center,
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            Icon(icon, color: isRead ? color.withOpacity(0.4) : color, size: 28),
-                                            if (!isRead)
-                                              const Positioned(
-                                                top: -8,
-                                                right: -8,
-                                                child: Text("🧊", style: TextStyle(fontSize: 14)), 
-                                              )
-                                          ],
-                                        ),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: isLight 
+                                              ? (isRead ? Colors.grey.shade200 : Colors.white) 
+                                              : (isRead ? Colors.white.withOpacity(0.05) : const Color(0xFF1E2A33).withOpacity(0.95)),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: isLight ? Colors.white : Colors.white.withOpacity(0.12),
+                                        width: 1.5,
                                       ),
-                                      title: Text(
-                                        notif["title"] ?? "Alert",
-                                        style: TextStyle(
-                                          color: isLight ? (isRead ? Colors.black54 : Colors.black87) : (isRead ? Colors.white70 : Colors.white), 
-                                          fontWeight: FontWeight.w900, 
-                                          fontSize: 16,
-                                          letterSpacing: 0.3,
-                                        ),
-                                      ),
-                                      subtitle: Padding(
-                                        padding: const EdgeInsets.only(top: 6),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              notif["message"] ?? "",
-                                              style: TextStyle(color: isLight ? (isRead ? Colors.black45 : Colors.black87) : (isRead ? Colors.white54 : Colors.white70), fontSize: 13, height: 1.3),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Align(
-                                              alignment: Alignment.bottomRight,
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                  color: color.withOpacity(0.05),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
-                                                child: Text(
-                                                  notif["createdAt"] != null 
-                                                      ? _formatTimestamp(notif["createdAt"])
-                                                      : "",
-                                                  style: TextStyle(color: color.withOpacity(isRead ? 0.5 : 0.9), fontSize: 10, fontWeight: FontWeight.bold),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      trailing: !isRead ? IconButton(
-                                        icon: Icon(Icons.done_all, color: color, size: 24),
-                                        onPressed: () async {
-                                          final token = await SecureStorageService.getToken();
-                                          if (token != null) {
-                                            await ApiService.markNotificationRead(notif['_id'], token);
-                                            _fetchNotifications();
-                                          }
-                                        },
-                                        tooltip: "Mark as Read",
-                                      ).animate().scale(duration: 300.ms, curve: Curves.elasticOut)
-                                      : Icon(Icons.done_all, color: color.withOpacity(0.3), size: 20),
+                                      boxShadow: isLight || isRead ? [] : [
+                                        BoxShadow(
+                                          color: color.withOpacity(0.2),
+                                          blurRadius: 20,
+                                          offset: const Offset(0, 10),
+                                        )
+                                      ]
                                     ),
-                                    // 🔹 Bottom accent bar (replaces non-uniform border bottom)
-                                    Container(
-                                      height: 5,
-                                      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                                      decoration: BoxDecoration(
-                                        color: color.withOpacity(isRead ? 0.2 : 0.8),
-                                        borderRadius: BorderRadius.circular(3),
-                                      ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ListTile(
+                                          onTap: () {
+                                            final t = (notif['type'] ?? "").toString().toLowerCase();
+                                            if (t == 'expiry' || t == 'reminder') {
+                                              final itemName = notif['itemName'] ?? notif['title'].split(':').last.trim();
+                                              NotificationService.selectNotificationStream.add('inventory:$itemName');
+                                            } else if (t.isNotEmpty) {
+                                              NotificationService.selectNotificationStream.add('status');
+                                            }
+                                          },
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                          leading: Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: color.withOpacity(isRead ? 0.05 : 0.15),
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(color: color.withOpacity(isRead ? 0.1 : 0.3), width: 2),
+                                            ),
+                                            child: Stack(
+                                              alignment: Alignment.center,
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                Icon(icon, color: isRead ? color.withOpacity(0.4) : color, size: 28),
+                                                if (!isRead)
+                                                  const Positioned(
+                                                    top: -8,
+                                                    right: -8,
+                                                    child: Text("🧊", style: TextStyle(fontSize: 14)), 
+                                                  )
+                                              ],
+                                            ),
+                                          ),
+                                          title: Text(
+                                            notif["title"] ?? "Alert",
+                                            style: TextStyle(
+                                              color: isLight ? (isRead ? Colors.black54 : Colors.black87) : (isRead ? Colors.white70 : Colors.white), 
+                                              fontWeight: FontWeight.w900, 
+                                              fontSize: 16,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                          subtitle: Padding(
+                                            padding: const EdgeInsets.only(top: 6),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  notif["message"] ?? "",
+                                                  style: TextStyle(color: isLight ? (isRead ? Colors.black45 : Colors.black87) : (isRead ? Colors.white54 : Colors.white70), fontSize: 13, height: 1.3),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Align(
+                                                  alignment: Alignment.bottomRight,
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: color.withOpacity(0.05),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      notif["createdAt"] != null 
+                                                          ? _formatTimestamp(notif["createdAt"])
+                                                          : "",
+                                                      style: TextStyle(color: color.withOpacity(isRead ? 0.5 : 0.9), fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          trailing: !isRead ? IconButton(
+                                            icon: Icon(Icons.done_all, color: color, size: 24),
+                                            onPressed: () async {
+                                              final token = await SecureStorageService.getToken();
+                                              if (token != null) {
+                                                await ApiService.markNotificationRead(notif['_id'], token);
+                                                _fetchNotifications();
+                                              }
+                                            },
+                                            tooltip: "Mark as Read",
+                                          ).animate().scale(duration: 300.ms, curve: Curves.elasticOut)
+                                          : Icon(Icons.done_all, color: color.withOpacity(0.3), size: 20),
+                                        ),
+                                        // 🔹 Bottom accent bar (replaces non-uniform border bottom)
+                                        Container(
+                                          height: 5,
+                                          margin: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                                          decoration: BoxDecoration(
+                                            color: color.withOpacity(isRead ? 0.2 : 0.8),
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            ),
-                          );
+                              );
 
-                          if (_animatingOutIds.contains(notif['_id'])) {
-                            return baseWidget.animate()
-                              .slideX(begin: 0.0, end: -1.5, duration: 400.ms, curve: Curves.easeInCubic)
-                              .fadeOut(duration: 300.ms);
-                          }
-                          return baseWidget;
-                        },
-                      ),
+                              if (_animatingOutIds.contains(notif['_id'])) {
+                                return baseWidget.animate()
+                                  .slideX(begin: 0.0, end: -1.5, duration: 400.ms, curve: Curves.easeInCubic)
+                                  .fadeOut(duration: 300.ms);
+                              }
+                              return baseWidget;
+                            },
+                          ),
+                        ),
                     ),
                   ),
-                ),
-            ],
-          );
-        },
+                ],
+              );
+            },
+          ),
+          
+          if (_showWalkthrough)
+            AppWalkthrough(
+              steps: _currentSteps,
+              onFinish: () => setState(() => _showWalkthrough = false),
+              onSkip: () => setState(() => _showWalkthrough = false),
+            ),
+        ],
       ),
     );
   }
@@ -550,6 +604,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ]
       ),
       child: ListTile(
+        onTap: () {
+          NotificationService.selectNotificationStream.add('inventory:${item.name}');
+        },
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
         leading: Container(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),

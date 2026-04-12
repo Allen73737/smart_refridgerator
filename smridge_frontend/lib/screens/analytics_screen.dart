@@ -12,6 +12,7 @@ import '../widgets/system_monitoring_indicators.dart';
 import '../providers/sensor_provider.dart'; // 🚀 Added
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../widgets/app_walkthrough.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -34,8 +35,39 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   DateTime? _lastUpdated;
   String _syncStatus = "Searching for ESP32...";
 
+  final GlobalKey _wtTempChartKey = GlobalKey();
+  final GlobalKey _wtHumChartKey = GlobalKey();
+  final GlobalKey _wtFreshChartKey = GlobalKey();
+  final GlobalKey _wtDoorKey = GlobalKey();
+  final GlobalKey _wtSystemKey = GlobalKey();
+
+  bool _showWalkthrough = false;
+  List<WalkthroughStep> _currentSteps = [];
+
+  Future<void> _checkFirstVisit() async {
+    final visited = await SecureStorageService.getString('visited_analytics');
+    if (visited == null) {
+      _triggerWalkthrough();
+    }
+  }
+
+  void _triggerWalkthrough() {
+    setState(() {
+      _currentSteps = [
+        WalkthroughStep(targetKey: _wtTempChartKey, title: "Thermal History", description: "This chart monitors real-time temperature fluctuations of your Smridge over time."),
+        WalkthroughStep(targetKey: _wtFreshChartKey, title: "AI Freshness Index", description: "Our AI engine analyzes atmospheric data to quantify the overall preservation quality of your stored inventory."),
+        WalkthroughStep(targetKey: _wtDoorKey, title: "Security & Energy Loss", description: "A live view into door status. Prolonged openings trigger cooling loss warnings here."),
+        WalkthroughStep(targetKey: _wtSystemKey, title: "System Status", description: "Verify your Cloud Socket connection and ESP32 telemetry timestamp to ensure live data is flowing."),
+      ];
+      _showWalkthrough = true;
+    });
+    SecureStorageService.saveString('visited_analytics', 'true');
+  }
+
   @override
   void initState() {
+    super.initState();
+    _checkFirstVisit();
     _fetchHistoricalData(); 
     
     // 🧬 DATA UNIFICATION: Listen to the central SensorProvider
@@ -184,30 +216,39 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                 child: Column(
                   children: [
-                    _buildGraphCard("Internal Temperature (°C)", "${_tempData.last.y.toStringAsFixed(1)}°C", Colors.blueAccent, _tempData, isLight),
+                    _buildGraphCard("Internal Temperature (°C)", "${_tempData.last.y.toStringAsFixed(1)}°C", Colors.blueAccent, _tempData, isLight, key: _wtTempChartKey),
                     const SizedBox(height: 20),
-                    _buildGraphCard("Relative Humidity (%)", "${_humData.last.y.toInt()}%", Colors.cyanAccent, _humData, isLight),
+                    _buildGraphCard("Relative Humidity (%)", "${_humData.last.y.toInt()}%", Colors.cyanAccent, _humData, isLight, key: _wtHumChartKey),
                     const SizedBox(height: 20),
-                    _buildGraphCard("Freshness Index", "${_freshData.last.y.toInt()}%", Colors.greenAccent, _freshData, isLight),
+                    _buildGraphCard("Freshness Index", "${_freshData.last.y.toInt()}%", Colors.greenAccent, _freshData, isLight, key: _wtFreshChartKey),
                     const SizedBox(height: 20),
-                    _buildDoorStatusTimeline(isLight),
+                    _buildDoorStatusTimeline(isLight, key: _wtDoorKey),
                     const SizedBox(height: 20),
-                    _buildSystemMonitoringCard(isLight),
+                    _buildSystemMonitoringCard(isLight, key: _wtSystemKey),
                     const SizedBox(height: 100), // Padding for bottom dock
                   ],
                 ),
               ),
+            ),
+          
+          if (_showWalkthrough)
+            AppWalkthrough(
+              steps: _currentSteps,
+              onFinish: () => setState(() => _showWalkthrough = false),
+              onSkip: () => setState(() => _showWalkthrough = false),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildSystemMonitoringCard(bool isLight) {
+  Widget _buildSystemMonitoringCard(bool isLight, {Key? key}) {
     Color textColor = isLight ? Colors.black87 : Colors.white;
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
 
-    return ClipRRect(
+    return Container(
+      key: key,
+      child: ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
@@ -247,14 +288,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
-  Widget _buildGraphCard(String title, String currentValue, Color color, List<FlSpot> points, bool isLight) {
+  Widget _buildGraphCard(String title, String currentValue, Color color, List<FlSpot> points, bool isLight, {Key? key}) {
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
     Color graphTitleColor = isLight ? ((color == Colors.cyanAccent || color == Colors.greenAccent) ? Colors.teal : color) : color;
 
-    return ClipRRect(
+    return Container(
+      key: key,
+      child: ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
@@ -338,15 +382,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
   // 🚪 NEW: Creative Animated Door Status Indicator
-  Widget _buildDoorStatusTimeline(bool isLight) {
+  Widget _buildDoorStatusTimeline(bool isLight, {Key? key}) {
     Color subTextColor = isLight ? Colors.black54 : Colors.white70;
     bool isOpen = _doorData.isNotEmpty && _doorData.last.y == 1.0;
     
-    return ClipRRect(
+    return Container(
+      key: key,
+      child: ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
@@ -429,6 +476,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ],
           ),
         ),
+      ),
       ),
     ).animate().fadeIn().slideY(begin: 0.1);
   }

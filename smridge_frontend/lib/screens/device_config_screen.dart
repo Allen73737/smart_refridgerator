@@ -8,8 +8,10 @@ import '../widgets/animated_bottom_dock.dart';
 import '../screens/home_screen.dart';
 import '../providers/theme_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/secure_storage_service.dart';
+import '../widgets/app_walkthrough.dart';
 
 class DeviceConfigScreen extends StatefulWidget {
   const DeviceConfigScreen({super.key});
@@ -19,6 +21,38 @@ class DeviceConfigScreen extends StatefulWidget {
 }
 
 class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
+  final GlobalKey _wtTempKey = GlobalKey();
+  final GlobalKey _wtHumKey = GlobalKey();
+  final GlobalKey _wtFreshKey = GlobalKey();
+
+  bool _showWalkthrough = false;
+  List<WalkthroughStep> _currentSteps = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFirstVisit();
+  }
+
+  Future<void> _checkFirstVisit() async {
+    final visited = await SecureStorageService.getString('visited_device_config');
+    if (visited == null) {
+      _triggerWalkthrough();
+    }
+  }
+
+  void _triggerWalkthrough() {
+    setState(() {
+      _currentSteps = [
+        WalkthroughStep(targetKey: _wtTempKey, title: "Temperature Threshold", description: "Configure the specific internal temperature at which your hardware triggers an emergency push notification to your device."),
+        WalkthroughStep(targetKey: _wtHumKey, title: "Humidity Alert Bound", description: "Set the acceptable humidity limits for optimal preservation. Deviations trigger cloud-sync alerts."),
+        WalkthroughStep(targetKey: _wtFreshKey, title: "Freshness Baseline", description: "Controls your AI neural baseline. If the real-time atmospheric air quality drops below this percentage, you'll be warned of spoilage."),
+      ];
+      _showWalkthrough = true;
+    });
+    SecureStorageService.saveString('visited_device_config', 'true');
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -91,50 +125,6 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                         
                         const SizedBox(height: 20),
                         
-                        // 🤖 GLOBAL SIMULATION TOGGLE
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.tealAccent.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.psychology_outlined, color: Colors.tealAccent),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      "Simulation Mode",
-                                      style: GoogleFonts.outfit(color: textColor, fontWeight: FontWeight.bold, fontSize: 15),
-                                    ),
-                                    Text(
-                                      "Enable AI-driven sensor fluctuations when offline.",
-                                      style: TextStyle(color: textColor.withOpacity(0.5), fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch.adaptive(
-                                value: AppSettings.isSimulationEnabled,
-                                activeColor: Colors.tealAccent,
-                                onChanged: (val) async {
-                                  setState(() => AppSettings.isSimulationEnabled = val);
-                                  final token = await SecureStorageService.getToken();
-                                  if (token != null) {
-                                    await ApiService.updateAdminThresholds({'isSimulationEnabled': val}, token);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ).animate().fadeIn(delay: 150.ms),
-
-                        const SizedBox(height: 20),
-                        
                         _buildGlassSlider(
                           "Temperature Threshold",
                           AppSettings.temperatureThreshold,
@@ -144,6 +134,7 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                           Icons.thermostat,
                           isLight,
                           textColor,
+                          key: _wtTempKey,
                         ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
                         
                         Padding(
@@ -163,6 +154,7 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                           Icons.water_drop,
                           isLight,
                           textColor,
+                          key: _wtHumKey,
                         ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.1),
                         
                         Padding(
@@ -182,6 +174,7 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                           Icons.eco,
                           isLight,
                           textColor,
+                          key: _wtFreshKey,
                         ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.1),
                         
                         Padding(
@@ -218,15 +211,23 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               },
             ),
           ),
+          
+          if (_showWalkthrough)
+            AppWalkthrough(
+              steps: _currentSteps,
+              onFinish: () => setState(() => _showWalkthrough = false),
+              onSkip: () => setState(() => _showWalkthrough = false),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildGlassSlider(String label, double value, double min, double max, Function(double) onChanged, IconData icon, bool isLight, Color textColor) {
+  Widget _buildGlassSlider(String label, double value, double min, double max, Function(double) onChanged, IconData icon, bool isLight, Color textColor, {Key? key}) {
     Color iconColor = isLight ? Colors.teal : Colors.tealAccent;
 
     return Container(
+      key: key,
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       decoration: BoxDecoration(
         color: isLight ? Colors.grey.shade200 : Colors.white.withOpacity(0.08),

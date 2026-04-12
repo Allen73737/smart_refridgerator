@@ -28,6 +28,17 @@ const deviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    status: {
+      type: String,
+      enum: ['online', 'offline'],
+      default: 'offline',
+    },
+    lastSeen: {
+      type: Date,
+    },
+    wifiSSID: {
+      type: String,
+    },
   },
   { timestamps: true }
 );

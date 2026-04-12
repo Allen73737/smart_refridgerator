@@ -205,10 +205,29 @@ class NotificationService {
     // 💡 IMPORTANT: If type is 'expiry', we MUST use the stable item name ID to replace trackers
     int? idFromBackend = int.tryParse(message.data['notificationId']?.toString() ?? "");
     final String type = message.data['type']?.toString().toLowerCase() ?? "";
+    final String? targetTimeStr = message.data['targetTime'];
+    final String? itemName = message.data['itemName'];
     
     if (idFromBackend == null && (type == 'expiry' || type == 'reminder')) {
-       final itemName = title.split(':').last.trim();
-       idFromBackend = getStableId(itemName) + 1000000; // Match showLiveTimer trackerId
+       final name = itemName ?? title.split(':').last.trim();
+       idFromBackend = getStableId(name) + 1000000; // Match showLiveTimer trackerId
+    }
+
+    if (itemName != null && targetTimeStr != null) {
+      final targetTime = DateTime.tryParse(targetTimeStr);
+      if (targetTime != null) {
+        final now = DateTime.now();
+        final diff = targetTime.difference(now);
+        if (!diff.isNegative && diff.inHours <= 72) {
+           if (type == 'expiry') {
+              showCountdownNotification(itemName, targetTime, itemId: getStableId(itemName));
+              return;
+           } else if (type == 'reminder') {
+              showReminderTimerNotification(getStableId(itemName), itemName, targetTime);
+              return;
+           }
+        }
+      }
     }
 
     await showNotification(
@@ -284,8 +303,24 @@ class NotificationService {
     
     if (localExpiry.isBefore(now)) return;
 
-    // 🛡️ ALWAYS show the standard Flutter notification (guaranteed to work in shade)
-    final androidDetails = AndroidNotificationDetails(
+    if (Platform.isAndroid) {
+      try {
+        final platform = const MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('showLiveTimer', {
+          'id': trackerId,
+          'title': "🚨 LIVE EXPIRY: $itemName",
+          'targetTime': localExpiry.millisecondsSinceEpoch,
+          'payload': 'inventory:$itemName',
+        });
+        // 🚨 Schedule intensive foreground alert
+        await _scheduleTimerEndAlert(trackerId, itemName, localExpiry, shadeId: trackerId);
+        return; // Don't overwrite with Flutter local notification
+      } catch (e) {
+        debugPrint("❌ MethodChannel Error: $e");
+      }
+    }
+
+    final androidDetails = const AndroidNotificationDetails(
       'smridge_urgent_v15',
       'Smridge Emergency Protocol',
       importance: Importance.max,
@@ -294,21 +329,12 @@ class NotificationService {
       showWhen: true,
       usesChronometer: true,
       chronometerCountDown: true,
-      when: localExpiry.millisecondsSinceEpoch,
       icon: 'ic_notif',
-      color: const Color(0xFFFF004D),
+      color: Color(0xFFFF004D),
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
-      // 🛡️ No sound on ongoing tracker — only the alarm at expiry should play
       playSound: false,
       enableVibration: false,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'dismiss_timer',
-          'DISMISS',
-          cancelNotification: true,
-        ),
-      ],
     );
     final details = NotificationDetails(android: androidDetails);
     try {
@@ -375,8 +401,23 @@ class NotificationService {
     final int baseId = (itemId ?? getStableId(itemName));
     final int trackerId = baseId + 1000000;
 
-    // 🛡️ ALWAYS show the standard Flutter notification (guaranteed to work)
-    final androidDetails = AndroidNotificationDetails(
+    if (Platform.isAndroid) {
+      try {
+        final platform = const MethodChannel('com.example.smridge.timer');
+        await platform.invokeMethod('showLiveTimer', {
+          'id': trackerId,
+          'title': "🚨 LIVE EXPIRY: $itemName",
+          'targetTime': localExpiry.millisecondsSinceEpoch,
+          'payload': 'inventory:$itemName',
+        });
+        return; // Prevent Flutter Local Notifications from overriding the custom shade layout
+      } catch (e) {
+        debugPrint("❌ MethodChannel Error: $e");
+      }
+    }
+
+    // 🛡️ Fallback standard Flutter notification
+    final androidDetails = const AndroidNotificationDetails(
       'smridge_urgent_v15',
       'Smridge Emergency Protocol',
       importance: Importance.max,
@@ -386,25 +427,14 @@ class NotificationService {
       showWhen: true,
       usesChronometer: true,
       chronometerCountDown: true,
-      when: localExpiry.millisecondsSinceEpoch,
       icon: 'ic_notif',
-      color: const Color(0xFFFF004D), 
+      color: Color(0xFFFF004D), 
       category: AndroidNotificationCategory.reminder,
       visibility: NotificationVisibility.public,
       groupKey: 'com.example.smridge.TIMERS',
       groupAlertBehavior: GroupAlertBehavior.all,
-      // 🛡️ REMOVED timeoutAfter — it auto-dismissed the notification before expiry!
-      // The scheduled alarm at expiry time handles replacement.
-      // 🛡️ No sound on ongoing tracker — only the alarm at expiry should play
       playSound: false,
       enableVibration: false,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'dismiss_timer',
-          'DISMISS',
-          cancelNotification: true,
-        ),
-      ],
     );
 
     final details = NotificationDetails(android: androidDetails);
@@ -486,20 +516,20 @@ class NotificationService {
 
     if (Platform.isAndroid) {
       try {
-        final platform = MethodChannel('com.example.smridge.timer');
+        final platform = const MethodChannel('com.example.smridge.timer');
         await platform.invokeMethod('showLiveTimer', {
           'id': trackerId,
           'title': "⏳ REMINDER: $itemName",
           'targetTime': targetTime.millisecondsSinceEpoch,
           'payload': 'inventory:$itemName',
         });
+        return; // Do not proceed to standard plugin.show, which overwrites the custom layout
       } catch (e) {
         debugPrint("❌ MethodChannel Error: $e");
-        // Fallback: show standard notification
       }
     }
 
-    // 🛡️ ALWAYS show standard Flutter notification as well (guaranteed shade visibility)
+    // 🛡️ Fallback standard Flutter notification
     final androidDetails = AndroidNotificationDetails(
       'smridge_urgent_v15',
       'Smridge Emergency Protocol',

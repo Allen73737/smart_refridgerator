@@ -53,6 +53,11 @@ class _AppWalkthroughState extends State<AppWalkthrough> {
     
     final key = widget.steps[_currentStepIndex].targetKey;
     
+    // 🔹 FORCE KEYBOARD DOWN SO WE CAN SCROLL FREELY
+    FocusManager.instance.primaryFocus?.unfocus();
+    // Wait a brief moment for keyboard to start hiding
+    await Future.delayed(const Duration(milliseconds: 150));
+
     // 🔹 Try to scroll the target into view first
     if (key.currentContext != null) {
       try {
@@ -60,13 +65,13 @@ class _AppWalkthroughState extends State<AppWalkthrough> {
           key.currentContext!,
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeInOut,
-          alignment: 0.3, // Position target at 30% from top for comfortable viewing
+          alignment: 0.1, // Position target at 10% from top for comfortable viewing
         );
       } catch (_) {
         // Not all widgets are inside a Scrollable — that's OK
       }
-      // Wait for scroll animation to complete before measuring
-      await Future.delayed(const Duration(milliseconds: 450));
+      // Wait for scroll & complete keyboard dismissed animation
+      await Future.delayed(const Duration(milliseconds: 500));
     }
     
     _calculateTargetRect();

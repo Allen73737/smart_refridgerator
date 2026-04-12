@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
@@ -189,8 +190,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       barrierColor: Colors.black.withOpacity(0.7),
       transitionDuration: const Duration(milliseconds: 600),
       pageBuilder: (context, anim1, anim2) {
-        return WillPopScope(
-          onWillPop: () async => false,
+        return PopScope(
+          canPop: false,
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Material(
@@ -470,6 +471,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       } catch (e) {
         print("Item not found for deep link: $itemName");
+      }
+    } else if (payload == 'status') {
+      if (mounted) {
+        setState(() => selectedTab = 1); // Analytics Dashboard / System Monitor
       }
     }
   }
@@ -1163,9 +1168,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     return PopScope(
-      canPop: selectedTab == 0,
-      onPopInvoked: (didPop) {
+      canPop: false,
+      onPopInvoked: (didPop) async {
         if (didPop) return;
+
+        if (selectedTab == 0) {
+          await SystemChannels.platform.invokeMethod<void>('SystemNavigator.pop');
+          return;
+        }
 
         if (selectedTab == 3) {
           if (_addFlowState == AddFlowState.manual) {

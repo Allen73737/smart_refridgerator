@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/wave_background.dart';
+import '../config/app_settings.dart';
+import '../services/api_service.dart';
+import '../services/secure_storage_service.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -94,14 +97,31 @@ class AboutScreen extends StatelessWidget {
                     child: Column(
                       children: [
                         const SizedBox(height: 20),
-                        Hero(
-                          tag: 'app_logo',
-                          child: Container(
-                            height: 140,
-                            width: 140,
-                            padding: const EdgeInsets.all(25),
-                            decoration: BoxDecoration(
-                              color: isLight ? Colors.white.withOpacity(0.5) : accentColor.withOpacity(0.05),
+                        GestureDetector(
+                          onLongPress: () async {
+                             final newVal = !AppSettings.isSimulationEnabled;
+                             AppSettings.isSimulationEnabled = newVal;
+                             final token = await SecureStorageService.getToken();
+                             if (token != null) {
+                               await ApiService.updateAdminThresholds({'isSimulationEnabled': newVal}, token);
+                             }
+                             if (context.mounted) {
+                               ScaffoldMessenger.of(context).showSnackBar(
+                                 SnackBar(
+                                   content: Text('Developer Override: Simulation Mode is now ${newVal ? "ON" : "OFF"} 🤖', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                   backgroundColor: accentColor,
+                                 )
+                               );
+                             }
+                          },
+                          child: Hero(
+                            tag: 'app_logo',
+                            child: Container(
+                              height: 140,
+                              width: 140,
+                              padding: const EdgeInsets.all(25),
+                              decoration: BoxDecoration(
+                                color: isLight ? Colors.white.withOpacity(0.5) : accentColor.withOpacity(0.05),
                               shape: BoxShape.circle,
                               border: Border.all(color: accentColor.withOpacity(0.3), width: 1.5),
                               boxShadow: [
@@ -116,6 +136,7 @@ class AboutScreen extends StatelessWidget {
                               'assets/images/smridge_logo.png', // Fixed Path
                             ).animate(onPlay: (c) => c.repeat(reverse: true))
                              .shimmer(duration: 3000.ms, color: accentColor.withOpacity(0.3)),
+                           ),
                           ),
                         ).animate().scale(duration: 800.ms, curve: Curves.easeOutBack),
                         const SizedBox(height: 25),
@@ -239,8 +260,6 @@ class AboutScreen extends StatelessWidget {
                             _buildSocialIcon(Icons.language, () => _launchURL("https://smridge.vercel.app/"), accentColor),
                             const SizedBox(width: 20),
                             _buildSocialIcon(Icons.email_outlined, _sendEmail, accentColor),
-                            const SizedBox(width: 20),
-                            _buildSocialIcon(Icons.code, () => _launchURL("https://github.com/smridge"), accentColor),
                           ],
                         ),
                       ],

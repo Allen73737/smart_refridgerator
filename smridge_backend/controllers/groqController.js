@@ -424,14 +424,19 @@ exports.suggestImage = async (req, res) => {
             try {
                 const base64Image = fs.readFileSync(req.file.path).toString("base64");
                 const visionResponse = await groq.chat.completions.create({
-                    model: "llama-3.2-11b-vision-preview",
+                    model: "llama-3.2-90b-vision-preview",
                     messages: [
                         {
                             role: "user",
                             content: [
                                 { 
                                     type: "text", 
-                                    text: `Analyze this image with extreme precision for a smart refrigerator inventory system. Return ONLY a valid JSON object with keys: "name", "category", "expiryDays", "visual_description".`
+                                    text: `Analyze this photo. Identify the primary food item or main ingredient depicted. Return ONLY a valid JSON object with keys: 
+"name" (Specific name of the core food or dish), 
+"category" (Strictly one of: Dairy, Fruits, Vegetables, Meat, Seafood, Beverages, Snacks, Condiments, Bakery, Frozen, Leftovers, Others), 
+"expiryDays" (Integer representing standard refrigerator shelf life), 
+"visual_description" (Brief description).
+If the image is complex, identify the most dominant recognizable food. Be flexible and avoid rejecting photos.`
                                 },
                                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
                             ]

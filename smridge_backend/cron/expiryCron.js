@@ -129,7 +129,9 @@ cron.schedule("* * * * *", async () => {
         const stableId = getStableId(item.name);
         await sendPushNotification(user.fcmToken, title, message, {
            notificationId: (stableId + 1000000).toString(), // 🎯 Aligned with Tracker ID
-           type: "expiry"
+           type: "expiry",
+           targetTime: expiry.toISOString(),
+           itemName: item.name
         });
       }
 
@@ -162,7 +164,9 @@ cron.schedule("* * * * *", async () => {
           const stableId = getStableId(item.name);
           await sendPushNotification(user.fcmToken, title, message, {
              notificationId: (stableId + 1000000).toString(), 
-             type: "reminder"
+             type: "reminder",
+             targetTime: reminderDate.toISOString(),
+             itemName: item.name
           });
         }
       }

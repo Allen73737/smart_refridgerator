@@ -91,6 +91,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
   // 🎯 Walkthrough Goals
   final GlobalKey _wtNameKey = GlobalKey();
+  final GlobalKey _wtBrandKey = GlobalKey();
   final GlobalKey _wtCategoryKey = GlobalKey();
   final GlobalKey _wtWeightKey = GlobalKey();
   final GlobalKey _wtExpiryKey = GlobalKey();
@@ -174,6 +175,11 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           targetKey: _wtNameKey,
           title: "Intelligent Naming",
           description: "Start typing an item name. Our AI will predict the category, estimate a safe expiry date, and even suggest images — all from the name alone.",
+        ),
+        WalkthroughStep(
+          targetKey: _wtBrandKey,
+          title: "Brand Identification",
+          description: "Optional: specify the brand. Smridge analytics can track which brands last longer and offer better freshness retention.",
         ),
         WalkthroughStep(
           targetKey: _wtCategoryKey,
@@ -362,6 +368,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
   Future<void> _refreshAiImage() async {
     if (_isFetchingAiImage) return;
+    if (!mounted) return;
     setState(() => _isFetchingAiImage = true);
 
     try {
@@ -378,27 +385,31 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       );
       if (response.statusCode == 200) {
         final suggestedData = jsonDecode(response.body);
-        setState(() {
-          if (suggestedData['suggested_urls'] != null) {
-            _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
-          } else if (suggestedData['suggested_url'] != null) {
-            _aiSuggestedImageUrls = [suggestedData['suggested_url']];
-          }
-          imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
-          _selectedImageUrl = imageUrl;
-          _isFetchingAiImage = false;
-        });
+        if (mounted) {
+          setState(() {
+            if (suggestedData['suggested_urls'] != null) {
+              _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
+            } else if (suggestedData['suggested_url'] != null) {
+              _aiSuggestedImageUrls = [suggestedData['suggested_url']];
+            }
+            imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
+            _selectedImageUrl = imageUrl;
+            _isFetchingAiImage = false;
+            imagePath = null;
+          });
+        }
       } else {
-        setState(() => _isFetchingAiImage = false);
+        if (mounted) setState(() => _isFetchingAiImage = false);
       }
     } catch (e) {
-      setState(() => _isFetchingAiImage = false);
+      if (mounted) setState(() => _isFetchingAiImage = false);
     }
   }
 
   Future<void> pickImage(ImageSource source) async {
     final XFile? picked = await picker.pickImage(source: source);
     if (picked != null) {
+      if (!mounted) return;
       setState(() {
         imagePath = picked.path;
         _originalLocalImagePath = picked.path; 
@@ -410,7 +421,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
       try {
         final token = await SecureStorageService.getToken();
         if (token == null) {
-          setState(() => _isFetchingAiImage = false);
+          if (mounted) setState(() => _isFetchingAiImage = false);
           return;
         }
         final name = nameController.text.trim().isNotEmpty ? nameController.text.trim() : "food";
@@ -424,36 +435,43 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
           final suggestedData = jsonDecode(response.body);
           if (suggestedData != null && suggestedData['detected_info'] != null) {
             final info = suggestedData['detected_info'];
-            setState(() {
-              if (nameController.text.isEmpty || nameController.text == "food") {
-                nameController.text = info['name'] ?? "";
-              }
-              if (info['category'] != null && categoryOptions.contains(info['category'])) {
-                categoryController.text = info['category'];
-              }
-              if (info['expiryDays'] != null) {
-                final int days = (info['expiryDays'] as num).toInt();
-                selectedDate = DateTime.now().add(Duration(days: days));
-                expirySource = "estimated";
-              }
-              if (suggestedData['suggested_urls'] != null) {
-                _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
-              } else if (suggestedData['suggested_url'] != null) {
-                _aiSuggestedImageUrls = [suggestedData['suggested_url']];
-              }
-              imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
-              _selectedImageUrl = imageUrl;
-              _isFetchingAiImage = false;
-            });
+            if (mounted) {
+              setState(() {
+                if (nameController.text.isEmpty || nameController.text == "food") {
+                  nameController.text = info['name'] ?? "";
+                }
+                if (info['category'] != null && categoryOptions.contains(info['category'])) {
+                  categoryController.text = info['category'];
+                }
+                if (info['expiryDays'] != null) {
+                  final int days = (info['expiryDays'] as num).toInt();
+                  selectedDate = DateTime.now().add(Duration(days: days));
+                  expirySource = "estimated";
+                }
+                if (suggestedData['suggested_urls'] != null) {
+                  _aiSuggestedImageUrls = List<String>.from(suggestedData['suggested_urls']);
+                } else if (suggestedData['suggested_url'] != null) {
+                  _aiSuggestedImageUrls = [suggestedData['suggested_url']];
+                }
+                if (_originalLocalImagePath == null) {
+                  imageUrl = _aiSuggestedImageUrls.isNotEmpty ? _aiSuggestedImageUrls.first : null;
+                  _selectedImageUrl = imageUrl;
+                } else {
+                  imagePath = _originalLocalImagePath;
+                  _selectedImageUrl = null;
+                }
+                _isFetchingAiImage = false;
+              });
+            }
             _checkLiquid(nameController.text, categoryController.text);
           } else {
-             setState(() => _isFetchingAiImage = false);
+             if (mounted) setState(() => _isFetchingAiImage = false);
           }
         } else {
-           setState(() => _isFetchingAiImage = false);
+           if (mounted) setState(() => _isFetchingAiImage = false);
         }
       } catch (e) {
-          setState(() => _isFetchingAiImage = false);
+          if (mounted) setState(() => _isFetchingAiImage = false);
       }
     }
   }
@@ -572,7 +590,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
           SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.only(left: 20, right: 20, top: 100, bottom: 20),
+              padding: EdgeInsets.only(left: 20, right: 20, top: 100, bottom: MediaQuery.of(context).viewInsets.bottom + 40),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
@@ -613,6 +631,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           children: [
                             Expanded(
                               child: _buildGlassInput(
+                                key: _wtBrandKey,
                                 label: "Brand", 
                                 controller: brandController, 
                                 icon: Icons.branding_watermark,
@@ -629,6 +648,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                   border: Border.all(color: isLight ? Colors.transparent : Colors.white.withOpacity(0.15)),
                                 ),
                                 child: DropdownButtonFormField<String>(
+                                  isExpanded: true,
                                   value: categoryOptions.contains(categoryController.text) ? categoryController.text : null,
                                   decoration: InputDecoration(
                                     labelText: "Category",
@@ -780,7 +800,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                           ),
                         ).animate().slideX(begin: 0.1).fade(delay: 300.ms),
 
-                        if (_aiSuggestedImageUrls.length > 1)
+                        if (_aiSuggestedImageUrls.length > 1 || (_aiSuggestedImageUrls.isNotEmpty && _originalLocalImagePath != null))
                           Padding(
                             padding: const EdgeInsets.only(top: 15),
                             child: Column(
@@ -792,9 +812,34 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                                   height: 70,
                                   child: ListView.builder(
                                     scrollDirection: Axis.horizontal,
-                                    itemCount: _aiSuggestedImageUrls.length,
+                                    itemCount: _aiSuggestedImageUrls.length + (_originalLocalImagePath != null ? 1 : 0),
                                     itemBuilder: (context, index) {
-                                      final img = _aiSuggestedImageUrls[index];
+                                      if (_originalLocalImagePath != null && index == 0) {
+                                        final isSelected = _selectedImageUrl == null && imagePath == _originalLocalImagePath;
+                                        return GestureDetector(
+                                          onTap: () {
+                                            setState(() {
+                                              _selectedImageUrl = null;
+                                              imagePath = _originalLocalImagePath;
+                                            });
+                                          },
+                                          child: Container(
+                                            width: 70,
+                                            margin: const EdgeInsets.only(right: 10),
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: isSelected ? (isLight ? Colors.teal : Colors.tealAccent) : Colors.transparent, width: 3),
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Image.file(File(_originalLocalImagePath!), fit: BoxFit.cover),
+                                            ),
+                                          ),
+                                        );
+                                      }
+
+                                      final imgIndex = _originalLocalImagePath != null ? index - 1 : index;
+                                      final img = _aiSuggestedImageUrls[imgIndex];
                                       final isSelected = _selectedImageUrl == img;
                                       return GestureDetector(
                                         onTap: () {
