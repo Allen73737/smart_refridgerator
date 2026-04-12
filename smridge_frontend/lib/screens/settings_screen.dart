@@ -17,11 +17,14 @@ import 'about_screen.dart';
 import 'notification_history_screen.dart';
 import '../services/secure_storage_service.dart';
 import '../services/haptic_service.dart';
+import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'pin_entry_screen.dart';
 import 'activity_screen.dart';
+import 'backup_codes_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../widgets/app_walkthrough.dart'; 
+import '../widgets/app_walkthrough.dart';
+import '../utils/snackbar_utils.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -188,6 +191,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _regenerateBackupCodes() async {
+    final token = await SecureStorageService.getToken();
+    if (token == null) {
+      if (mounted) SnackbarUtils.showError(context, "Not authenticated. Please re-login.");
+      return;
+    }
+
+    // Show confirmation dialog first
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2A33),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Regenerate Codes?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          "This will invalidate ALL existing backup codes and generate 10 new ones.\n\nAre you sure?",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCEL", style: TextStyle(color: Colors.white54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("REGENERATE", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final codes = await ApiService.regenerateBackupCodes(token);
+    if (!mounted) return;
+
+    if (codes != null && codes.isNotEmpty) {
+      final userProfile = await ApiService.getProfile(token);
+      final email = userProfile?['email'] ?? 'user@smridge.app';
+      
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BackupCodesScreen(
+            backupCodes: codes,
+            email: email,
+          ),
+        ),
+      );
+    } else {
+      SnackbarUtils.showError(context, "Failed to regenerate codes. Try again.");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -307,6 +362,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                }
                             }
                           ),
+                        ),
+                        _buildSettingsTile(
+                          Icons.vpn_key_outlined, 
+                          "Backup Recovery Codes", 
+                          isLight,
+                          onTap: () => _regenerateBackupCodes(),
                         ),
                         
                         const SizedBox(height: 30),

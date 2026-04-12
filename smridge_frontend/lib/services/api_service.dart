@@ -725,4 +725,54 @@ class ApiService {
     }
     return false;
   }
+
+  // ─── BACKUP CODE RECOVERY ─────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>?> forgotPassword(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$authUrl/forgot-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email}),
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) return data;
+      throw Exception(data['msg'] ?? "Failed to verify account");
+    } catch (e) {
+      print("Forgot Password Error: $e");
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> resetPassword(String email, String backupCode, String newPassword) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$authUrl/reset-password'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'backupCode': backupCode, 'newPassword': newPassword}),
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) return data;
+      throw Exception(data['msg'] ?? "Failed to reset password");
+    } catch (e) {
+      print("Reset Password Error: $e");
+      rethrow;
+    }
+  }
+
+  static Future<List<String>?> regenerateBackupCodes(String token) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$authUrl/regenerate-codes'),
+        headers: {'Content-Type': 'application/json', 'x-auth-token': token},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return List<String>.from(data['backupCodes']);
+      }
+    } catch (e) {
+      print("Regenerate Codes Error: $e");
+    }
+    return null;
+  }
 }

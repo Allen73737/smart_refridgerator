@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import 'add_device_screen.dart';
+import 'backup_codes_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/smart_loader.dart';
 import '../widgets/wave_background.dart';
@@ -45,20 +46,35 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => isLoading = false);
 
     if (data != null) {
-      SnackbarUtils.showSuccess(context, "Registration Successful! Logging in...");
+      SnackbarUtils.showSuccess(context, "Registration Successful!");
       
-      // Auto-login after signup
-      setState(() => isLoading = true);
-      final loginData = await ApiService.login(emailController.text, passwordController.text);
-      if (!mounted) return;
-      setState(() => isLoading = false);
+      // Save auth credentials
+      final token = data['token'];
+      final userId = data['user']['_id'];
+      await SecureStorageService.saveToken(token);
+      await SecureStorageService.saveUserId(userId);
 
-      if (loginData != null) {
-        final token = loginData['token'];
-        final userId = loginData['user']['_id'];
-        await SecureStorageService.saveToken(token);
-        await SecureStorageService.saveUserId(userId);
+      // Extract backup codes from signup response
+      final List<String> backupCodes = List<String>.from(data['backupCodes'] ?? []);
 
+      if (backupCodes.isNotEmpty) {
+        // Navigate to BackupCodesScreen first
+        Navigator.pushAndRemoveUntil(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 800),
+            pageBuilder: (_, __, ___) => BackupCodesScreen(
+              backupCodes: backupCodes,
+              email: emailController.text,
+            ),
+            transitionsBuilder: (_, animation, __, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          ),
+          (route) => false,
+        );
+      } else {
+        // Fallback: No codes returned (shouldn't happen, but safety net)
         Navigator.pushAndRemoveUntil(
           context,
           PageRouteBuilder(

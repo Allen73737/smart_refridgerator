@@ -13,9 +13,35 @@
 
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const logActivity = require("../utils/activityLogger");
+
+// ─── BACKUP CODE HELPERS ──────────────────────────────────────────────────────
+
+/**
+ * Generates N random backup codes in XXXX-XXXX format.
+ * Returns { plain: [...], hashed: [...] }
+ */
+async function generateBackupCodes(count = 10) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No I/O/0/1 to avoid confusion
+  const plain = [];
+  const hashed = [];
+
+  for (let i = 0; i < count; i++) {
+    let code = "";
+    for (let j = 0; j < 8; j++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+      if (j === 3) code += "-"; // Format: XXXX-XXXX
+    }
+    plain.push(code);
+    const salt = await bcrypt.genSalt(10);
+    hashed.push(await bcrypt.hash(code, salt));
+  }
+  return { plain, hashed };
+}
 
 // ─── EMAIL / PASSWORD AUTH ─────────────────────────────────────────────────────
 
@@ -23,10 +49,8 @@ const logActivity = require("../utils/activityLogger");
  * @function signup
  * @route POST /api/auth/signup
  * @description Registers a new user with email and password.
- * - Checks for duplicate email in the database.
- * - Creates the user (password is auto-hashed by the User model's pre-save hook).
- * - Issues a 30-day JWT token to immediately log the user in after registration.
- * - Logs the registration event to the activity log.
+ * - Creates the user and generates 10 single-use backup codes.
+ * - Returns plain backup codes ONE TIME for the user to save.
  */
 exports.signup = async (req, res) => {
   try {
@@ -37,10 +61,20 @@ exports.signup = async (req, res) => {
 
     const user = await User.create({ name, email, password, authProvider: 'email' });
 
+    // 🔐 Generate backup codes
+    const { plain, hashed } = await generateBackupCodes(10);
+    user.backupCodes = hashed;
+    user.backupCodesUsed = 0;
+    await user.save({ validateBeforeSave: false });
+
     await logActivity(user._id, 'REGISTER', 'user', `New user registered: ${user.email}`);
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "30d" });
-    res.status(201).json({ token, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
+    res.status(201).json({
+      token,
+      user: { _id: user._id, name: user.name, email: user.email, role: user.role },
+      backupCodes: plain, // ⚠️ Returned ONCE — never stored in plain text
+    });
   } catch (error) {
     console.error("Signup Error:", error.message);
     res.status(500).json({ msg: "Registration failed", error: error.message });
@@ -158,5 +192,139 @@ exports.googleLogin = async (req, res) => {
   } catch (error) {
     console.error("Google Auth Error:", error.message);
     res.status(400).json({ msg: "Google authentication failed" });
+  }
+};
+
+// ─── BACKUP CODE RECOVERY ─────────────────────────────────────────────────────
+
+/**
+ * @function forgotPassword
+ * @route POST /api/auth/forgot-password
+ * @description Step 1: Verify the user exists and has remaining backup codes.
+ */
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ msg: "Email is required" });
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    if (!user) return res.status(404).json({ msg: "No account found with this email" });
+
+    if (user.authProvider !== 'email') {
+      return res.status(400).json({ msg: "This account uses Google Sign-In. Password recovery is not available." });
+    }
+
+    const remaining = 10 - (user.backupCodesUsed || 0);
+    if (remaining <= 0) {
+      return res.status(403).json({ msg: "All backup codes have been used. Account recovery is no longer possible." });
+    }
+
+    if (!user.backupCodes || user.backupCodes.length === 0) {
+      return res.status(403).json({ msg: "No backup codes found. Please contact support or regenerate from Settings if logged in." });
+    }
+
+    res.json({ found: true, remaining });
+  } catch (error) {
+    console.error("Forgot Password Error:", error.message);
+    res.status(500).json({ msg: "Failed to verify account", error: error.message });
+  }
+};
+
+/**
+ * @function resetPassword
+ * @route POST /api/auth/reset-password
+ * @description Step 2+3: Verify backup code and reset password.
+ * Rate-limited: Max 5 failed attempts per hour.
+ */
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, backupCode, newPassword } = req.body;
+    if (!email || !backupCode || !newPassword) {
+      return res.status(400).json({ msg: "Email, backup code, and new password are all required" });
+    }
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    if (!user) return res.status(404).json({ msg: "No account found with this email" });
+
+    // 🛡️ Rate limiting
+    if (user.failedRecoveryLockUntil && new Date() < new Date(user.failedRecoveryLockUntil)) {
+      const minutesLeft = Math.ceil((new Date(user.failedRecoveryLockUntil) - new Date()) / 60000);
+      return res.status(429).json({ msg: `Too many failed attempts. Try again in ${minutesLeft} minutes.` });
+    }
+
+    if (!user.backupCodes || user.backupCodes.length === 0) {
+      return res.status(403).json({ msg: "No backup codes available for this account." });
+    }
+
+    // 🔐 Compare submitted code against each hashed code
+    let matchIndex = -1;
+    const normalizedCode = backupCode.trim().toUpperCase();
+    for (let i = 0; i < user.backupCodes.length; i++) {
+      const isMatch = await bcrypt.compare(normalizedCode, user.backupCodes[i]);
+      if (isMatch) {
+        matchIndex = i;
+        break;
+      }
+    }
+
+    if (matchIndex === -1) {
+      // Increment failure counter
+      user.failedRecoveryAttempts = (user.failedRecoveryAttempts || 0) + 1;
+      if (user.failedRecoveryAttempts >= 5) {
+        user.failedRecoveryLockUntil = new Date(Date.now() + 60 * 60 * 1000); // Lock 1 hour
+        user.failedRecoveryAttempts = 0;
+      }
+      await user.save({ validateBeforeSave: false });
+      return res.status(401).json({ msg: "Invalid backup code" });
+    }
+
+    // ✅ Code matched — consume it
+    user.backupCodes.splice(matchIndex, 1);
+    user.backupCodesUsed = (user.backupCodesUsed || 0) + 1;
+    user.failedRecoveryAttempts = 0;
+    user.failedRecoveryLockUntil = null;
+
+    // Reset password (pre-save hook will hash it)
+    user.password = newPassword;
+    await user.save();
+
+    const remaining = 10 - user.backupCodesUsed;
+    console.log(`🔐 Password reset via backup code for: ${email} (${remaining} codes remaining)`);
+
+    await logActivity(user._id, 'PASSWORD_RESET', 'user', `Password reset via backup code. ${remaining} codes remaining.`);
+
+    res.json({ msg: "Password has been reset successfully", remaining });
+  } catch (error) {
+    console.error("Reset Password Error:", error.message);
+    res.status(500).json({ msg: "Failed to reset password", error: error.message });
+  }
+};
+
+/**
+ * @function regenerateBackupCodes
+ * @route POST /api/auth/regenerate-codes
+ * @description Generates 10 new backup codes. Requires authentication.
+ * Old codes are invalidated immediately.
+ */
+exports.regenerateBackupCodes = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    const { plain, hashed } = await generateBackupCodes(10);
+    user.backupCodes = hashed;
+    user.backupCodesUsed = 0;
+    user.failedRecoveryAttempts = 0;
+    user.failedRecoveryLockUntil = null;
+    await user.save({ validateBeforeSave: false });
+
+    console.log(`🔐 Backup codes regenerated for: ${user.email}`);
+    await logActivity(user._id, 'REGENERATE_CODES', 'user', `Backup codes regenerated for: ${user.email}`);
+
+    res.json({ backupCodes: plain, msg: "New backup codes generated. Old codes are now invalid." });
+  } catch (error) {
+    console.error("Regenerate Codes Error:", error.message);
+    res.status(500).json({ msg: "Failed to regenerate backup codes", error: error.message });
   }
 };

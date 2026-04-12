@@ -18,6 +18,11 @@ const userSchema = new mongoose.Schema({
   appPin:       { type: String, default: null }, // Hashed PIN
   deviceId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Device', default: null },
   isSimulationEnabled: { type: Boolean, default: false },
+  // 🔐 Backup Codes Recovery System
+  backupCodes:             [{ type: String }],              // Array of bcrypt-hashed single-use codes
+  backupCodesUsed:         { type: Number, default: 0 },    // How many codes have been consumed
+  failedRecoveryAttempts:  { type: Number, default: 0 },    // Rate-limit brute force
+  failedRecoveryLockUntil: { type: Date, default: null },   // Lockout timestamp
 }, { timestamps: true });
 
 // Auto-hash password/PIN before saving (SINGLE source of truth)

@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'signup_screen.dart';
+import 'forgot_password_screen.dart';
 import 'home_screen.dart';
 import 'add_device_screen.dart';
 import '../services/api_service.dart';
@@ -194,9 +195,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ).animate().scale(delay: 300.ms).fade(),
 
-                      const SizedBox(height: 25),
+                      const SizedBox(height: 16),
 
-                      const SizedBox(height: 25),
+                      // 🔐 Forgot Password Link
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()));
+                        },
+                        child: Text(
+                          "Forgot Password?",
+                          style: TextStyle(color: Colors.tealAccent.withOpacity(0.7), fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ).animate().fade(delay: 400.ms),
+
+                      const SizedBox(height: 20),
 
                       GestureDetector(
                         onTap: () {
