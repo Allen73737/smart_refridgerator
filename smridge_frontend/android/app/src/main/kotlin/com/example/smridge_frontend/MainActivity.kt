@@ -25,7 +25,7 @@ class NotificationDismissReceiver : BroadcastReceiver() {
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.smridge.timer"
-    private val NOTIFICATION_CHANNEL_ID = "smridge_urgent_v15"
+    private val NOTIFICATION_CHANNEL_ID = "smridge_live_timer_v2"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -61,9 +61,11 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "Smridge Emergency Protocol",
-                NotificationManager.IMPORTANCE_HIGH
+                "Smridge Live Timers",
+                NotificationManager.IMPORTANCE_LOW
             )
+            channel.setSound(null, null)
+            channel.enableVibration(false)
             manager.createNotificationChannel(channel)
         }
 
@@ -111,10 +113,10 @@ class MainActivity : FlutterActivity() {
             .setCustomBigContentView(remoteViews)
             .setOngoing(true) // Prevent swipe clear
             .setContentIntent(pendingAppIntent)
-            .setFullScreenIntent(pendingAppIntent, true) // 🚨 Wake up screen for alarms
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 🚨 Show on lock screen
-            .setCategory(NotificationCompat.CATEGORY_ALARM) // 🚨 Treat as alarm
+            .setOnlyAlertOnce(true) // 🚨 Prevent ringing/popping up every time it is updated
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Show on lock screen
+            .setCategory(NotificationCompat.CATEGORY_STATUS) // Treat as status/timer, not alarm
 
         manager.notify(id, builder.build())
     }

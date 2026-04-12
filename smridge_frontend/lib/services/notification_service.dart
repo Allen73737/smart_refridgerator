@@ -103,6 +103,17 @@ class NotificationService {
         ledColor: const Color(0xFFFFAB00),
         audioAttributesUsage: AudioAttributesUsage.alarm,
       ));
+
+      // 🤫 SILENT PROTOCOL: Ongoing countdown timer in the notification shade shouldn't ring on every update
+      await androidImplementation.createNotificationChannel(const AndroidNotificationChannel(
+        'smridge_live_timer_v2', 
+        'Smridge Live Timers', 
+        importance: Importance.low, 
+        description: 'Silent ongoing expiry countdowns', 
+        playSound: false, 
+        enableVibration: false,
+        enableLights: false,
+      ));
       
       debugPrint("✅ SMRIDGE NOTIF: Urgent Protocol (v15) initialized.");
       // 🧪 Trigger Vibration Diagnostic
@@ -423,10 +434,10 @@ class NotificationService {
     // 🛡️ Fallback: Flutter Local Notification with Chronometer
     // ⚠️ CRITICAL: `when` MUST be set to the TARGET timestamp for chronometerCountDown to work!
     final androidDetails = AndroidNotificationDetails(
-      'smridge_urgent_v15',
-      'Smridge Emergency Protocol',
-      importance: Importance.max,
-      priority: Priority.max,
+      'smridge_live_timer_v2', // 🤫 Use the silent channel
+      'Smridge Live Timers',
+      importance: Importance.low,
+      priority: Priority.high,
       ongoing: true,
       autoCancel: false,
       showWhen: true,
@@ -435,7 +446,7 @@ class NotificationService {
       when: localExpiry.millisecondsSinceEpoch,
       icon: 'ic_notif',
       color: const Color(0xFFFF004D), 
-      category: AndroidNotificationCategory.reminder,
+      category: AndroidNotificationCategory.status, // Treat as status
       visibility: NotificationVisibility.public,
       groupKey: 'com.example.smridge.TIMERS',
       groupAlertBehavior: GroupAlertBehavior.all,
