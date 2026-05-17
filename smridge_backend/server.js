@@ -38,7 +38,7 @@ app.use(compression());
 // 🛡️ Global API Rate Limit: 150 requests per 15 minutes per IP
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 1500, // Increased to support 5-second polling
   standardHeaders: true,
   legacyHeaders: false,
   message: { msg: "Too many requests. Please try again later." },
