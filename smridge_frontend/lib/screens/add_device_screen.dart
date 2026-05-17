@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -207,6 +208,17 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   Future<void> _startRegistration() async {
     if (_deviceNameController.text.trim().isEmpty) {
       SnackbarUtils.showWarning(context, "Please enter a name for your fridge.");
+      return;
+    }
+
+    // 🌐 Check for actual internet connection before pinging Render
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      if (result.isEmpty || result[0].rawAddress.isEmpty) {
+        throw Exception();
+      }
+    } catch (_) {
+      SnackbarUtils.showError(context, "No Internet Access! Please make sure you reconnected to your Home Wi-Fi or Mobile Data.");
       return;
     }
 
