@@ -421,8 +421,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         
                         Consumer<ConnectivityProvider>(
                           builder: (context, connectivity, child) {
-                            final isConnected = connectivity.isConnected;
-                            final statusColor = isConnected ? Colors.tealAccent : Colors.redAccent;
+                            final isPaired = connectivity.isConnected;
+                            final isEspOnline = connectivity.isEspOnline;
+                            final lastSeen = connectivity.lastSeen;
+                            
+                            // Three-state status
+                            Color statusColor;
+                            String statusTitle;
+                            String statusSubtitle;
+                            String buttonLabel;
+
+                            if (isPaired && isEspOnline) {
+                              statusColor = Colors.tealAccent;
+                              statusTitle = "ESP32 Connected";
+                              statusSubtitle = "Live data streaming on ${connectivity.lastSsid ?? 'Local Network'}";
+                              buttonLabel = "RECONNECT";
+                            } else if (isPaired && !isEspOnline) {
+                              statusColor = Colors.amberAccent;
+                              statusTitle = "ESP32 Offline";
+                              if (lastSeen != null) {
+                                final diff = DateTime.now().difference(lastSeen);
+                                if (diff.inMinutes < 1) {
+                                  statusSubtitle = "Last seen: just now";
+                                } else if (diff.inMinutes < 60) {
+                                  statusSubtitle = "Last seen: ${diff.inMinutes}m ago";
+                                } else {
+                                  statusSubtitle = "Last seen: ${diff.inHours}h ${diff.inMinutes % 60}m ago";
+                                }
+                              } else {
+                                statusSubtitle = "No data received yet";
+                              }
+                              buttonLabel = "RECONNECT";
+                            } else {
+                              statusColor = Colors.redAccent;
+                              statusTitle = "No Device Paired";
+                              statusSubtitle = "Tap to set up your Smridge";
+                              buttonLabel = "PAIR NOW";
+                            }
                             
                             return Column(
                               children: [
@@ -459,21 +494,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(isConnected ? "Hub Connected" : "Hub Offline", style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
-                                            Text(isConnected ? "Active on ${connectivity.lastSsid ?? 'Local Network'}" : "No active link found", style: TextStyle(color: isLight ? Colors.black45 : Colors.white54, fontSize: 12)),
+                                            Text(statusTitle, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                                            Text(statusSubtitle, style: TextStyle(color: isLight ? Colors.black45 : Colors.white54, fontSize: 12)),
                                           ],
                                         ),
                                       ),
                                       TextButton(
                                         onPressed: () {
                                           Navigator.push(context, MaterialPageRoute(builder: (_) => AddDeviceScreen(
-                                            isReconnecting: isConnected,
+                                            isReconnecting: isPaired,
                                             initialSsid: connectivity.lastSsid,
                                             initialPassword: connectivity.lastPassword,
                                           )));
                                         },
                                         style: TextButton.styleFrom(foregroundColor: statusColor),
-                                        child: Text(isConnected ? "RECONNECT" : "PAIR NOW"),
+                                        child: Text(buttonLabel),
                                       ),
                                     ],
                                   ),

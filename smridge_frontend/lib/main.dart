@@ -101,6 +101,13 @@ void main() async {
   // Fetch admin-set minimum thresholds from backend (non-blocking)
   AppSettings.fetchAdminThresholds();
 
+  // 🔗 Create providers and wire ESP32 liveness tracking
+  final connectivityProvider = ConnectivityProvider();
+  final sensorProvider = SensorProvider();
+  sensorProvider.onLivenessUpdate = (lastUpdated) {
+    connectivityProvider.updateEspLiveness(lastUpdated);
+  };
+
   runApp(
     MultiProvider(
       providers: [
@@ -110,8 +117,8 @@ void main() async {
           provider.loadFromPrefs();
           return provider;
         }),
-        ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
-        ChangeNotifierProvider(create: (_) => SensorProvider()), // 🚀 Added
+        ChangeNotifierProvider.value(value: connectivityProvider),
+        ChangeNotifierProvider.value(value: sensorProvider),
       ],
       child: const SmridgeApp(),
     ),

@@ -408,15 +408,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // 🛡️ Start the real logout countdown when app goes to background
       _inactivityTimer?.cancel();
       _inactivityTimer = Timer(const Duration(minutes: 30), () async {
-        print("🛡️ Auto-logout: 30 min inactivity exceeded");
-        await SecureStorageService.clearAll();
-        if (mounted) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (route) => false,
-          );
-        }
+        print("🛡️ 30 min inactivity exceeded - previously auto-logged out, now disabled for better UX");
+        // await SecureStorageService.clearAll();
+        // if (mounted) {
+        //   Navigator.pushAndRemoveUntil(
+        //     context,
+        //     MaterialPageRoute(builder: (_) => const LoginScreen()),
+        //     (route) => false,
+        //   );
+        // }
       });
     }
   }
@@ -780,8 +780,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _fetchLatestDeviceData();
       } else if (mounted) {
         setState(() {
-          userName = "Session Expired";
-          userEmail = "Please login again";
+          userName = "Offline Mode";
+          userEmail = "Local data only";
         });
       }
     } else {

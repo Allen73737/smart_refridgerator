@@ -159,7 +159,7 @@ exports.getCurrentSensors = async (userId = "GLOBAL") => {
         currentState = { ...DEFAULT_STATE };
     }
 
-    const isOffline = (now - lastHardwareTimestamp) > 30000;
+    const isOffline = (now - lastHardwareTimestamp) > 300000; // 5 minutes
 
     return { ...currentState, timestamp: lastHardwareTimestamp, isReal: !isOffline };
 };
@@ -205,7 +205,7 @@ setInterval(async () => {
 
         for (const [userId, sensors] of userStates.entries()) {
             const lastLog = userHardwareTimestamps.get(userId) || 0;
-            const isReal = (Date.now() - lastLog) < 30000;
+            const isReal = (Date.now() - lastLog) < 300000; // 5 minutes
 
             // Only save if it's real data OR if global simulation is explicitly ON (admin request)
             if (isReal || isGlobalSimEnabled) {

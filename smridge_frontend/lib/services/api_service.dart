@@ -95,7 +95,7 @@ class ApiService {
     // 4. Fallback to Render (with reachability check)
     try {
       print("🌍 Checking Cloud Backend reachability: https://$renderUrl");
-      final response = await http.get(Uri.parse('https://$renderUrl/health')).timeout(const Duration(seconds: 3));
+      final response = await http.get(Uri.parse('https://$renderUrl/health')).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
         print("✅ Cloud Backend Verified! Using: https://$renderUrl");
         currentBaseUrl.value = 'https://$renderUrl';
@@ -105,9 +105,9 @@ class ApiService {
       print("⚠️ Cloud Backend Unreachable or DNS failure: $e");
     }
 
-    // 5. Final choice: If everything fails, stick to local emulator/physical IP as last known good
-    print("📡 Local/Cloud both unreachable. Staying on best-guess local: http://$localIp:$localPort");
-    currentBaseUrl.value = 'http://$localIp:$localPort';
+    // 5. Final choice: If everything fails (e.g. Render is sleeping), default to Render
+    print("📡 Local/Cloud both unreachable. Defaulting to Cloud backend: https://$renderUrl");
+    currentBaseUrl.value = 'https://$renderUrl';
   }
 
   static Future<void> setManualIp(String? ip) async {

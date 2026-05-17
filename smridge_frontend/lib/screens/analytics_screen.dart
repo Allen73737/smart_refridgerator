@@ -92,7 +92,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (token == null) return;
     
     final List<dynamic> trends = await ApiService.getTemperatureTrend(token);
-    if (!mounted || trends.isEmpty) return;
+    if (!mounted) return;
 
     setState(() {
       _tempData.clear();
@@ -100,24 +100,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       _freshData.clear();
       _doorData.clear();
 
-      for (int i = 0; i < trends.length; i++) {
-        final data = trends[i];
-        double x = i.toDouble();
-        _timeX = x + 1;
+      if (trends.isEmpty) {
+        // Fallback to last recorded values from SensorProvider
+        final sensor = context.read<SensorProvider>();
+        _timeX = 1;
+        _tempData.add(FlSpot(0, sensor.temperature));
+        _humData.add(FlSpot(0, sensor.humidity));
+        _freshData.add(FlSpot(0, sensor.freshnessScore));
+        _doorData.add(FlSpot(0, sensor.doorStatus == "OPEN" ? 1.0 : 0.0));
+        _lastUpdated = sensor.lastUpdated;
+        _syncStatus = "Last Recorded State";
+      } else {
+        for (int i = 0; i < trends.length; i++) {
+          final data = trends[i];
+          double x = i.toDouble();
+          _timeX = x + 1;
 
-        double temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
-        double hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
-        double fresh = double.tryParse((data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "85.0") ?? 85.0;
-        double doorVal = (data['doorStatus'] == 'open' || data['doorOpen'] == true) ? 1.0 : 0.0;
+          double temp = double.tryParse(data['temperature']?.toString() ?? "8.0") ?? 8.0;
+          double hum = double.tryParse(data['humidity']?.toString() ?? "60.0") ?? 60.0;
+          double fresh = double.tryParse((data['freshnessScore'] ?? data['calculatedFreshness'])?.toString() ?? "85.0") ?? 85.0;
+          double doorVal = (data['doorStatus'] == 'open' || data['doorOpen'] == true) ? 1.0 : 0.0;
 
-        _tempData.add(FlSpot(x, temp));
-        _humData.add(FlSpot(x, hum));
-        _freshData.add(FlSpot(x, fresh));
-        _doorData.add(FlSpot(x, doorVal));
+          _tempData.add(FlSpot(x, temp));
+          _humData.add(FlSpot(x, hum));
+          _freshData.add(FlSpot(x, fresh));
+          _doorData.add(FlSpot(x, doorVal));
+        }
+        _lastUpdated = DateTime.now();
+        _syncStatus = "History Loaded";
       }
       
-      _lastUpdated = DateTime.now();
-      _syncStatus = "History Loaded";
       isLoading = false;
     });
   }
@@ -210,6 +222,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
             )
+
           else
             SafeArea(
               child: SingleChildScrollView(

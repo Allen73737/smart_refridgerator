@@ -132,6 +132,7 @@ class _AddInventoryChoiceScreenState extends State<AddInventoryChoiceScreen> {
     Color textColor = isLight ? Colors.black87 : Colors.white;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,

@@ -4,18 +4,22 @@ import '../services/secure_storage_service.dart';
 
 class ConnectivityProvider with ChangeNotifier {
   bool _isConnected = false;
+  bool _isEspOnline = false;
   String? _deviceId;
   String? _deviceName;
   String? _lastSsid;
   String? _lastPassword;
   bool _isLoading = false;
+  DateTime? _lastSeen;
 
   bool get isConnected => _isConnected;
+  bool get isEspOnline => _isEspOnline;
   String? get deviceId => _deviceId;
   String? get deviceName => _deviceName;
   String? get lastSsid => _lastSsid;
   String? get lastPassword => _lastPassword;
   bool get isLoading => _isLoading;
+  DateTime? get lastSeen => _lastSeen;
 
   ConnectivityProvider() {
     _init();
@@ -54,6 +58,18 @@ class ConnectivityProvider with ChangeNotifier {
     }
   }
 
+  /// 🔗 Called by SensorProvider listeners to update ESP32 liveness
+  void updateEspLiveness(DateTime? sensorLastUpdated) {
+    _lastSeen = sensorLastUpdated;
+    if (sensorLastUpdated != null) {
+      final diff = DateTime.now().difference(sensorLastUpdated);
+      _isEspOnline = diff.inSeconds < 300;
+    } else {
+      _isEspOnline = false;
+    }
+    notifyListeners();
+  }
+
   Future<void> updateStoredCredentials(String ssid, String password) async {
     _lastSsid = ssid;
     _lastPassword = password;
@@ -61,3 +77,4 @@ class ConnectivityProvider with ChangeNotifier {
     notifyListeners();
   }
 }
+

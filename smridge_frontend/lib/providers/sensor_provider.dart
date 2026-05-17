@@ -36,6 +36,9 @@ class SensorProvider extends ChangeNotifier {
   List<double> tempHistory = []; // 📈 History for mini-sparklines
   Timer? _pollingTimer;
 
+  /// 🔗 Callback for ConnectivityProvider to track ESP32 liveness
+  void Function(DateTime?)? onLivenessUpdate;
+
   SensorProvider() {
     _initSocket();
     // Initial fetch with whatever token we have at startup.
@@ -105,6 +108,7 @@ class SensorProvider extends ChangeNotifier {
       if (tempHistory.length >= 20) tempHistory.removeAt(0);
       tempHistory.add(temperature);
 
+      onLivenessUpdate?.call(lastUpdated);
       notifyListeners();
     });
   }
@@ -128,6 +132,7 @@ class SensorProvider extends ChangeNotifier {
     isRealData = data['isReal'] ?? true;
     lastUpdated = DateTime.now();
 
+    onLivenessUpdate?.call(lastUpdated);
     notifyListeners();
   }
 

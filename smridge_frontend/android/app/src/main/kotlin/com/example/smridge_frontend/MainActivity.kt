@@ -7,6 +7,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -26,6 +28,7 @@ class NotificationDismissReceiver : BroadcastReceiver() {
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.smridge.timer"
     private val NOTIFICATION_CHANNEL_ID = "smridge_live_timer_v2"
+    private val URGENT_CHANNEL_ID = "smridge_urgent_v15"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -119,5 +122,35 @@ class MainActivity : FlutterActivity() {
             .setCategory(NotificationCompat.CATEGORY_STATUS) // Treat as status/timer, not alarm
 
         manager.notify(id, builder.build())
+
+        // 🔔 TIMER COMPLETION: Replace the ongoing chronometer with a static "Done" notification
+        // Extract the item name from the title (e.g., "⏳ REMINDER: Milk" → "Milk")
+        val itemName = if (title.contains(":")) {
+            title.substringAfter(":").trim()
+        } else {
+            title
+        }
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            // Cancel the ongoing countdown notification
+            manager.cancel(id)
+
+            // Show a static, dismissable "Timer Complete" notification
+            val doneBuilder = NotificationCompat.Builder(this, URGENT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setContentTitle("✅ Timer Complete")
+                .setContentText("Your \"$itemName\" reminder has finished! Time to check your fridge. 🧊")
+                .setStyle(NotificationCompat.BigTextStyle()
+                    .bigText("Your \"$itemName\" reminder has finished! Time to check your fridge. 🧊"))
+                .setAutoCancel(true) // Dismiss on tap
+                .setOngoing(false) // Allow swipe to dismiss
+                .setContentIntent(pendingAppIntent)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+
+            manager.notify(id + 1, doneBuilder.build())
+        }, timeDiff)
     }
 }
+

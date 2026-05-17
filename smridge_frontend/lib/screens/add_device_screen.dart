@@ -11,13 +11,15 @@ import '../widgets/wave_background.dart';
 import '../utils/snackbar_utils.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'home_screen.dart';
 
 enum SetupStep {
   welcome,
   qrScan,
+  provisionHomeWifi,   // Enter home SSID & Pass (BEFORE connecting to fridge)
   connectDeviceWifi,   // Instruct connect to SMRIDGE_SETUP
-  provisionHomeWifi,   // Enter home SSID & Pass -> Send to ESP
   reconnectHomeWifi,   // Instruct connect to HOME network before cloud linking
   nameDevice,
   processing,
@@ -48,6 +50,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isScannerActive = false;
   bool _isProvisioning = false;
+  bool _isOnWifi = false;
   
   List<String> _progressLogs = [];
   double _progressValue = 0.0;
@@ -55,6 +58,59 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
   @override
   void initState() {
     super.initState();
+    _restoreSavedProgress();
+    _detectCurrentNetwork();
+  }
+
+  /// 🔗 Detect if user is on Wi-Fi and auto-fill SSID
+  Future<void> _detectCurrentNetwork() async {
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult.contains(ConnectivityResult.wifi)) {
+        _isOnWifi = true;
+        final wifiName = await NetworkInfo().getWifiName();
+        if (wifiName != null && wifiName.isNotEmpty && _ssidController.text.isEmpty) {
+          setState(() {
+            // NetworkInfo returns SSID with quotes on some devices: "MyWiFi" → MyWiFi
+            _ssidController.text = wifiName.replaceAll('"', '');
+          });
+        }
+      } else {
+        _isOnWifi = false;
+      }
+    } catch (e) {
+      debugPrint("Network detection error: $e");
+    }
+  }
+
+  /// 💾 Restore saved progress if user was mid-setup and the app was killed
+  Future<void> _restoreSavedProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedStepIndex = prefs.getInt('setup_step');
+    final savedDeviceId = prefs.getString('setup_device_id');
+
+    if (savedStepIndex != null && savedStepIndex > 0 && savedStepIndex < SetupStep.values.length) {
+      setState(() {
+        _currentStep = SetupStep.values[savedStepIndex];
+        _scannedDeviceId = savedDeviceId;
+      });
+    }
+  }
+
+  /// 💾 Save current progress
+  Future<void> _saveProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('setup_step', _currentStep.index);
+    if (_scannedDeviceId != null) {
+      await prefs.setString('setup_device_id', _scannedDeviceId!);
+    }
+  }
+
+  /// 🧹 Clear saved progress on success
+  Future<void> _clearSavedProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('setup_step');
+    await prefs.remove('setup_device_id');
   }
 
   @override
@@ -72,6 +128,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         _currentStep = SetupStep.values[nextIndex];
       }
     });
+    _saveProgress();
   }
 
   void _prevStep() {
@@ -81,6 +138,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         _currentStep = SetupStep.values[prevIndex];
       }
     });
+    _saveProgress();
   }
 
   // --- LOGIC FOR STEP 2: QR SCAN ---
@@ -90,7 +148,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         _scannedDeviceId = code.trim().toUpperCase();
         _isScannerActive = false;
       });
-      _nextStep(); // Move to connectDeviceWifi
+      _nextStep(); // Move to provisionHomeWifi
     } else {
       SnackbarUtils.showError(context, "Invalid QR Code detected.");
     }
@@ -240,8 +298,10 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
 
           // Content
           SafeArea(
-            child: Center(
-              child: AnimatedSwitcher(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 500),
                 transitionBuilder: (child, animation) {
                    return FadeTransition(opacity: animation, child: ScaleTransition(scale: animation, child: child));
@@ -299,7 +359,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
         const Icon(Icons.wifi_tethering, size: 60, color: Colors.tealAccent),
         const SizedBox(height: 24),
         Text(
-          "CONNECT TO DEVICE",
+          "CONNECT TO FRIDGE",
           textAlign: TextAlign.center,
           style: GoogleFonts.orbitron(
             color: Colors.white,
@@ -308,63 +368,48 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          "1. Turn OFF your Mobile Data.\n2. Open your phone's Wi-Fi settings.\n3. Connect to the network: SmartFridge\n4. Password is: 12345678\n5. Wait for 'Connected' status, then return here.",
-          textAlign: TextAlign.left,
-          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14, height: 1.5),
-        ),
-        const SizedBox(height: 32),
-        SizedBox(
-          width: double.infinity,
-          height: 56,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.tealAccent,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            ),
-            onPressed: _nextStep,
-            child: Text(
-              "I'M CONNECTED",
-              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
-            ),
+        // Fridge credentials displayed prominently
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.tealAccent.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
           ),
-        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
-      ],
-    );
-  }
-
-  Widget _buildProvisionHomeWifi() {
-    return _buildGlassCard(
-      children: [
-        const Icon(Icons.router, size: 60, color: Colors.tealAccent),
-        const SizedBox(height: 24),
-        Text(
-          "ENTER HOME WI-FI",
-          textAlign: TextAlign.center,
-          style: GoogleFonts.orbitron(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.wifi, color: Colors.tealAccent.withOpacity(0.7), size: 18),
+                  const SizedBox(width: 10),
+                  Text("Network: ", style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13)),
+                  Text("SmartFridge", style: GoogleFonts.orbitron(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.lock_outline, color: Colors.tealAccent.withOpacity(0.7), size: 18),
+                  const SizedBox(width: 10),
+                  Text("Password: ", style: GoogleFonts.outfit(color: Colors.white54, fontSize: 13)),
+                  Text("12345678", style: GoogleFonts.orbitron(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          "Please enter your home internet details. We will send this to your Smridge.",
-          textAlign: TextAlign.center,
-          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13),
-        ),
-        const SizedBox(height: 24),
-        _buildTextField(
-          controller: _ssidController,
-          label: "Wi-Fi Name (SSID)",
-          icon: Icons.wifi,
-        ),
-        const SizedBox(height: 16),
-        _buildTextField(
-          controller: _passwordController,
-          label: "Wi-Fi Password",
-          icon: Icons.lock_outline,
+        ).animate().fadeIn(delay: 200.ms),
+        const SizedBox(height: 20),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildGuidelineStep(1, "Turn OFF your Mobile Data/Cellular completely."),
+            const SizedBox(height: 8),
+            _buildGuidelineStep(2, "Open your phone's Wi-Fi settings."),
+            const SizedBox(height: 8),
+            _buildGuidelineStep(3, "Connect to the 'SmartFridge' network shown above."),
+            const SizedBox(height: 8),
+            _buildGuidelineStep(4, "Return to this app and tap the button below."),
+          ],
         ),
         const SizedBox(height: 32),
         SizedBox(
@@ -377,12 +422,126 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             onPressed: _isProvisioning ? null : _sendWifiCredentials,
-            child: _isProvisioning 
+            child: _isProvisioning
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.black))
                 : Text(
-                    "SEND CREDENTIALS",
+                    "SEND TO FRIDGE",
                     style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
                   ),
+          ),
+        ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
+      ],
+    );
+  }
+
+  Widget _buildGuidelineStep(int stepNumber, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          margin: const EdgeInsets.only(top: 1),
+          decoration: BoxDecoration(
+            color: Colors.tealAccent.withOpacity(0.15),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.5)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            "$stepNumber",
+            style: GoogleFonts.orbitron(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProvisionHomeWifi() {
+    return _buildGlassCard(
+      children: [
+        const Icon(Icons.router, size: 60, color: Colors.tealAccent),
+        const SizedBox(height: 24),
+        Text(
+          "YOUR WI-FI DETAILS",
+          textAlign: TextAlign.center,
+          style: GoogleFonts.orbitron(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_isOnWifi) ...[
+          Text(
+            "We detected your current Wi-Fi network. Just enter your password below.",
+            textAlign: TextAlign.center,
+            style: GoogleFonts.outfit(color: Colors.tealAccent.withOpacity(0.8), fontSize: 13),
+          ),
+        ] else ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amberAccent.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amberAccent.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.amberAccent, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "Using a Mobile Hotspot? Pull down your notification bar to turn it on, then enter your Hotspot Name and Password below.",
+                    style: GoogleFonts.outfit(color: Colors.white70, fontSize: 12, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ).animate().fadeIn(delay: 200.ms),
+        ],
+        const SizedBox(height: 24),
+        _buildTextField(
+          controller: _ssidController,
+          label: _isOnWifi ? "Wi-Fi Name (Auto-detected)" : "Wi-Fi / Hotspot Name",
+          icon: Icons.wifi,
+        ),
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _passwordController,
+          label: "Password",
+          icon: Icons.lock_outline,
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            onPressed: () {
+              final ssid = _ssidController.text.trim();
+              final pass = _passwordController.text.trim();
+              if (ssid.isEmpty || pass.isEmpty) {
+                SnackbarUtils.showWarning(context, "Please enter both Wi-Fi Name and Password.");
+                return;
+              }
+              _nextStep(); // Move to connectDeviceWifi
+            },
+            child: Text(
+              "SAVE & CONTINUE",
+              style: GoogleFonts.orbitron(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+            ),
           ),
         ).animate().fadeIn(delay: 400.ms).scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutBack),
       ],
@@ -872,6 +1031,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               elevation: 0,
             ),
             onPressed: () {
+              _clearSavedProgress();
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const HomeScreen()),

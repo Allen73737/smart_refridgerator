@@ -19,7 +19,7 @@ module.exports = {
         methods: ["GET", "POST"]
       },
       pingTimeout: 60000,
-      pingInterval: 25000
+      pingInterval: 10000
     });
 
     io.on("connection", (socket) => {

@@ -30,8 +30,17 @@ class _BackupCodesScreenState extends State<BackupCodesScreen> {
 
   Future<void> _downloadTxt() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/smridge-backup-codes.txt');
+      // 📂 Save to the user-visible Downloads folder
+      Directory? downloadsDir;
+      if (Platform.isAndroid) {
+        downloadsDir = Directory('/storage/emulated/0/Download');
+        if (!await downloadsDir.exists()) {
+          downloadsDir = await getExternalStorageDirectory();
+        }
+      }
+      downloadsDir ??= await getApplicationDocumentsDirectory();
+
+      final file = File('${downloadsDir.path}/smridge codes.txt');
       final content = StringBuffer();
       content.writeln("═══════════════════════════════════");
       content.writeln("   SMRIDGE BACKUP CODES");
@@ -46,7 +55,7 @@ class _BackupCodesScreenState extends State<BackupCodesScreen> {
       content.writeln("⚠️  These are your ONLY recovery codes.");
       content.writeln("    If lost, your account CANNOT be recovered.");
       await file.writeAsString(content.toString());
-      if (mounted) SnackbarUtils.showSuccess(context, "Saved to: ${file.path}");
+      if (mounted) SnackbarUtils.showSuccess(context, "✅ Saved to Downloads as 'smridge codes.txt'");
     } catch (e) {
       if (mounted) SnackbarUtils.showError(context, "Failed to save file: $e");
     }
