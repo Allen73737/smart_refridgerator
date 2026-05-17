@@ -310,8 +310,9 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               ),
             ),
           ),
+        ),
 
-          // Bypass Icon
+        // Bypass Icon
           Positioned(
             top: 50,
             right: 20,
